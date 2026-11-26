@@ -88,7 +88,23 @@ class Resampler(private val inRate: Int, private val outRate: Int, taps: Int = 6
 /** One finished piece of the night's audio: [file] in the night's clip folder, from [startMs] into the night. */
 data class AudioSegment(val file: String, val startMs: Long, val durationMs: Long)
 
-/** The list of finished segments, kept as its own small JSON file next to them. */
+/**
+ * The list of finished full-night audio segments, kept as `night-audio.json` in the night's clip
+ * folder. What a reader can rely on:
+ *
+ * - Only finished, playable files are listed. Each is added (atomically, temp file + rename) only
+ *   after its encoder has closed it, so a file in the folder that is NOT listed (e.g. the one in
+ *   progress when the app was killed) must be ignored. A segment dropped at the end (unplayable,
+ *   or under a second) is simply absent; there is no placeholder.
+ * - Segments are in time order and never overlap: `startMs[i+1] >= startMs[i] + durationMs[i]`.
+ *   A larger gap means no audio was kept for that stretch (microphone in use, lost audio, or full
+ *   audio turned off), never silence inside a file.
+ * - `startMs` is milliseconds from the night's start (Session.startMs) on the same clock as the
+ *   timeline buckets, so segment time t is bucket `(startMs + t) / 1000 / bucketSec`.
+ * - `durationMs` is the captured audio length; the decoded file can differ by about 0.1 s (AAC
+ *   frames and encoder delay), so trust the file for its own end.
+ * - Files are AAC-LC mono 16 kHz in MPEG-4 (.m4a). No index file means no full audio was kept.
+ */
 object SegmentIndex {
     const val FILE = "night-audio.json"
 
@@ -337,7 +353,7 @@ class AacSegmentEncoder(file: File, private val choice: AacSupport.Choice) : Seg
             // MediaMuxer.stop() writes the moov box that makes the file playable; it throws if no
             // sample was written, so only stop when something was. Errors above still propagate.
             ok = muxing && samplesWritten > 0 && runCatching { muxer.stop() }.isSuccess
-            muxer.release()
+            runCatching { muxer.release() } // release() itself stops a started muxer and throws if it had no samples
         }
         return ok
     }

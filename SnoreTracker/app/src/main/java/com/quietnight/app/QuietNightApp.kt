@@ -10,7 +10,7 @@ import com.quietnight.app.data.SessionRepository
 import com.quietnight.app.data.Settings
 
 class QuietNightApp : Application() {
-    private val widgetScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val widgetScope = CoroutineScope(SupervisorJob() + Dispatchers.Default + kotlinx.coroutines.CoroutineExceptionHandler { _, _ -> })
 
     lateinit var repository: SessionRepository
         private set

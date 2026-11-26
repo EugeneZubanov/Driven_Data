@@ -20,10 +20,10 @@ the score means. Before a real night, try the 5-minute test run on the Record ta
 
 ## The four tabs
 
-**Record** – start and stop (hold to stop), a fall-asleep delay before listening starts, factors
-and remedies to tag the night with, a microphone check, an optional wake-up time, optional
-whole-night audio, and phone-specific steps to keep the recording running. A test run is kept
-apart from real nights.
+**Record** – Start, a 5-minute test run (kept apart from real nights), and a *Tonight* card:
+fall-asleep delay, wake-up alarm, factors and remedies, optional whole-night audio and a microphone
+check. While recording the screen dims to near-black after 30 s (tap to wake) and Stop needs a
+1.5 s hold. Phone-specific steps help keep the recording running.
 
 **Results** – nights by month. Each night has a loudness timeline, time snoring by level (mild,
 loud, heavy), the score, up to 15 ten-second clips of the loudest snoring and, if it was kept, the
@@ -41,6 +41,36 @@ how the score works, the introduction again, and delete everything. The app vers
 
 A home-screen widget shows last night's score and time snoring; tapping it opens the app. It
 refreshes when a night is saved and once a day.
+
+## Recording reliability
+
+A night runs in a foreground service with a notification (elapsed time, Stop and save) and a
+partial wake lock, and is saved every 2 minutes.
+
+- **Before starting**: the app warns if the phone is not charging or storage is low, and shows a
+  card when Android may stop it to save battery, with a button to the setting and phone-specific
+  steps (Samsung, Xiaomi, Huawei/Honor, OnePlus/Oppo, Pixel).
+- **If the app is closed in the night** (by the phone, a crash, or the microphone permission
+  being taken away) the next launch keeps the part saved so far, marks it as cut short and says
+  so on the Record tab. Android 14+ does not let the app restart the microphone from the
+  background, so the night cannot resume by itself.
+- **Calls and other apps**: when the microphone is taken or muted, recording pauses and tries
+  again, and that stretch is kept as a gap without sound; the timeline stays on the real clock.
+  Audio lost to a stall is added back as quiet, so the night never shrinks.
+- **Microphone rate**: 16 kHz if the phone allows it, otherwise 48 or 44.1 kHz.
+- **Safety stops**: the night is stopped and saved at 5% battery when unplugged, and after 12 hours.
+- **Wake-up alarm**: at the set time the night stops, saves and an alarm rings until you act
+  (snooze 5 or 10 minutes, or turn off). The time can be changed or turned off during the night.
+  It needs no exact-alarm permission because the running recording watches the clock, so it
+  only rings if the app is still running; keep your usual alarm as well. Snooze uses
+  `setAlarmClock` (falls back to an inexact alarm if exact alarms are not allowed).
+- **Full-night audio** (off by default): AAC at 16 kHz mono, about 11 MB an hour, in 10-minute
+  files that are each finished before the next starts, listed in `night-audio.json`. It turns
+  itself off with a note if storage runs low or the phone's encoder fails; the night carries on.
+- **Screen and battery**: the screen may turn off after 10 minutes in the dimmed view; the live
+  meter updates less often when dimmed or off. Expect very roughly 1.5–4% battery an hour unplugged
+  (an estimate, not measured).
+What the app cannot do: see the end of [TESTING.md](TESTING.md).
 
 ## How detection works
 
@@ -109,7 +139,7 @@ different sensitivity, the card says why; the setting only changes when you pres
   - `clips/<night>/` folders with the clips, any whole-night audio (`night-audio.json` and
     `audio-NNN.m4a`) and `detector.json`
 
-  Sample nights are left out. Whole-night audio makes backups large: about 7 MB per hour.
+  Sample nights are left out. Whole-night audio makes backups large: about 11 MB per hour.
 - **Restore** adds the nights that are not already on the phone (matched by id), and weight days
   not already logged. It runs in the background, and its result stays shown if you leave Settings.
   - **Checks before anything is saved:** about twice the backup's size must be free, every night
