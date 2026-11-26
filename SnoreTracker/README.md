@@ -31,6 +31,10 @@ the repo so that every build can update an installed copy without losing data.
 
 ## Trends: how the numbers are worked out
 
+- Trends, the calendar, the report, the CSV and the widget leave out test runs and nights with under
+  an hour actually listened to. They use corrected numbers: stretches you marked as not snoring and
+  stretches with no audio are not counted as snoring.
+
 - A night belongs to the day it ended on (calendar, Results); "night of the week" uses the evening
   it started, so a recording begun at 00:30 on Saturday counts as Friday night.
 - Weeks start on the phone's locale first day of week.
@@ -44,11 +48,17 @@ the repo so that every build can update an installed copy without losing data.
 
 ## Your data
 
-- **Backup** writes a zip (`nights.json` plus `clips/<night>/<clip>.wav`) wherever you choose via
-  the system file picker; no storage permission is needed. Sample nights are left out.
+- **Backup** writes a zip (`nights.json`, `clips/<night>/<clip>.wav`, and for nights that kept
+  whole-night audio `clips/<night>/night-audio.json` plus its `audio-NNN.m4a` segments) wherever you
+  choose via the system file picker; no storage permission is needed. Sample nights are left out.
+  Whole-night audio makes backups large (about 7 MB per hour).
 - **Restore** adds nights from such a zip and keeps any night already on the phone (matched by id).
-  It ignores unexpected paths, caps file sizes, checks every night and saves nothing if the file is
-  damaged. It keeps running, and its result stays shown, if you leave Settings.
+  It ignores unexpected paths and checks every night. Limits: 16 MB per clip, 64 MB per audio
+  segment, 512 MB per night, 8 GB per backup, 20,000 files and 5,000 nights; a segment list only
+  keeps plainly named `.m4a` files that are in the backup and inside the night. A damaged or
+  oversized file is refused before anything is saved. It keeps running, and its result stays shown, if you leave Settings.
+- **Audio storage** shows how much space clips and whole-night audio use, and can delete the audio
+  of nights older than 30 or 90 days, at once and each time the app starts. The nights stay.
 - **Export CSV** writes one row per night: date, start, end, duration, minutes mild/loud/heavy,
   score, tags, and weight_kg when a weight was logged for that date.
 - The weight log (a separate small file in app storage) is included in the backup; on restore,
@@ -56,7 +66,7 @@ the repo so that every build can update an installed copy without losing data.
 
 ## Report and widget
 
-- **30-night report** (Settings → Your data): a one-page PDF on a white background for printing or
+- **30-night report** (Trends, or Settings → Your data): a one-page PDF on a white background for printing or
   sending to someone, saved where you choose and then shareable from the app. It has the date range,
   nights recorded, average score, the nightly score chart, time snoring by level, the
   with/without table (same minimum-nights rule) and weight if logged, and states that it is a

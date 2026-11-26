@@ -75,7 +75,7 @@ class ScreenshotTest {
     }
 
     @Test @Config(qualifiers = "w411dp-h3600dp-xhdpi")
-    fun trendsLargeFont() = shot("trends-font130", bigFont { TrendsScreen(sessions) })
+    fun trendsLargeFont() = shot("trends-font130", bigFont { TrendsScreen(sessions, onSaveReport = {}, onShareReport = {}, reportStatus = "Saved the report (24 nights).") })
 
     @Test @Config(qualifiers = "w411dp-h2400dp-xhdpi")
     fun settingsLargeFont() = shot("settings-font130", bigFont {
@@ -83,6 +83,7 @@ class ScreenshotTest {
             Prefs(reminderOn = true), false, true, {}, {}, {}, {}, {}, {}, {}, "Added 12 nights. 3 already here.",
             onShowIntro = {}, onReminder = { _, _ -> }, weight = WeightLog(), onWeight = {},
             onSaveReport = {}, onShareReport = {},
+            storageBytes = 412L * 1024 * 1024, onClipCleanup = {}, storageMessage = "Freed 96 MB.",
         )
     })
 
