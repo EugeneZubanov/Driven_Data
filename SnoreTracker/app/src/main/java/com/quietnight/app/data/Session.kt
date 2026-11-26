@@ -78,15 +78,18 @@ class Session(
     /** True for buckets whose middle falls in a [notSnoring] span. */
     val notSnoringMask: BooleanArray by lazy { spanMask(notSnoring.map { it.fromSec to it.toSec }) }
 
-    /** Level after corrections: quiet for gaps and for stretches marked not snoring. */
+    /**
+     * Level after corrections: quiet for gaps and for stretches marked not snoring. Other sounds do
+     * not change it: a cough in a bucket must not erase snoring the detector confirmed there.
+     */
     fun effectiveLevel(i: Int): Int =
-        if (gapMask[i] || notSnoringMask[i] || hasOther(i)) Level.QUIET else levels[i].toInt().coerceIn(0, 3)
+        if (gapMask[i] || notSnoringMask[i]) Level.QUIET else levels[i].toInt().coerceIn(0, 3)
 
-    /** True when the detector heard talking or another sound in bucket [i]; such buckets never count as snoring. */
+    /** True when the detector heard talking or another non-snore sound in bucket [i]. */
     fun hasOther(i: Int): Boolean = i < others.size && others[i].toInt() != 0
 
-    /** Seconds with talking or other sounds (not snoring), outside gaps. */
-    val otherSec: Int by lazy { levels.indices.count { hasOther(it) && !gapMask[it] } * bucketSec }
+    /** Seconds with talking or other sounds and no snoring, outside gaps. */
+    val otherSec: Int by lazy { levels.indices.count { hasOther(it) && !gapMask[it] && effectiveLevel(it) == Level.QUIET } * bucketSec }
 
     /** Seconds that were detected as snoring but marked not snoring. */
     val correctedSec: Int by lazy {

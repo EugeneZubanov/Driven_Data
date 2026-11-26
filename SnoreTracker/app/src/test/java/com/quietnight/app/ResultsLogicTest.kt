@@ -153,20 +153,22 @@ class ResultsLogicTest {
         assertEquals("12.5 MB", NightStats.formatBytes(12L * 1024 * 1024 + 512 * 1024))
     }
 
-    @Test fun otherSoundsNeverCountAsSnoring() {
+    @Test fun otherSoundsAreShownButNeverEraseSnoring() {
         val s = night("..22..2...")
         val others = ByteArray(10).also { it[1] = 1; it[2] = 2; it[3] = 2 } // talking at 1, other sounds over 2-3
         val o = Session(s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags, s.clips, others = others)
-        assertEquals(180, o.otherSec)
-        assertEquals(60, o.snoringSec) // only minute 6 still counts
-        assertTrue(o.score < s.score)
-        assertEquals(Level.QUIET, o.effectiveLevel(2))
+        // Only minute 1 is "other sound and no snoring"; minutes 2-3 also had confirmed snoring.
+        assertEquals(60, o.otherSec)
+        assertEquals(s.snoringSec, o.snoringSec)
+        assertEquals(s.score, o.score)
+        assertEquals(Level.LOUD, o.effectiveLevel(2))
+        assertEquals(Level.QUIET, o.effectiveLevel(1))
         val cols = NightStats.columns(o, o.startMs, o.endMs, 10)
         assertArrayEquals(BooleanArray(10) { it in 1..3 }, cols.others)
-        assertEquals(0, cols.levels[2])
+        assertEquals(2, cols.levels[2])
         // Old nights without the field are unchanged.
         assertEquals(0, s.otherSec)
-        assertEquals(Session.fromJson(JSONObject(o.toJson().toString())).otherSec, 180)
+        assertEquals(Session.fromJson(JSONObject(o.toJson().toString())).otherSec, 60)
     }
 
     @Test fun tipPicksOneFact() {
