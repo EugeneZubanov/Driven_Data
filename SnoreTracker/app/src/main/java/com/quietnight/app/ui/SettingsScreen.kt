@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.quietnight.app.BuildConfig
 import com.quietnight.app.data.Prefs
 import com.quietnight.app.data.ReminderTime
 import com.quietnight.app.data.WeightLog
@@ -144,6 +145,8 @@ fun SettingsScreen(
             Spacer(Modifier.height(12.dp))
             OutlinedButton({ confirmDelete = true }) { Text("Delete all nights", color = Palette.Heavy) }
         }
+        Spacer(Modifier.height(16.dp))
+        Text("Quiet Night ${BuildConfig.VERSION_NAME}", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(24.dp))
     }
 
@@ -199,6 +202,7 @@ private fun DataCard(
 @Composable
 private fun ReminderCard(on: Boolean, minute: Int, onReminder: (Boolean, Int) -> Unit) {
     var picking by remember { mutableStateOf(false) }
+    val is24 = rememberIs24Hour()
     Card {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -212,11 +216,11 @@ private fun ReminderCard(on: Boolean, minute: Int, onReminder: (Boolean, Int) ->
                 Switch(on, { onReminder(it, minute) })
             }
             Spacer(Modifier.height(8.dp))
-            OutlinedButton({ picking = true }) { Text("Time: ${ReminderTime.label(minute)}") }
+            OutlinedButton({ picking = true }) { Text("Time: ${ReminderTime.label(minute, is24)}") }
         }
     }
     if (picking) {
-        val state = rememberTimePickerState(minute / 60, minute % 60, is24Hour = true)
+        val state = rememberTimePickerState(minute / 60, minute % 60, is24Hour = is24)
         AlertDialog(
             onDismissRequest = { picking = false },
             title = { Text("Reminder time") },

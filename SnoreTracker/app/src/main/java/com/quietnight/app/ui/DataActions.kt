@@ -12,6 +12,7 @@ import com.quietnight.app.QuietNightApp
 import com.quietnight.app.data.Backup
 import com.quietnight.app.data.BackupException
 import com.quietnight.app.data.Csv
+import com.quietnight.app.data.WeightStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -49,7 +50,7 @@ object DataJobs {
 
     fun backup(app: QuietNightApp, resolver: ContentResolver, uri: Uri) = run("Saving backup…") {
         val n = resolver.openOutputStream(uri)?.use { out ->
-            Backup.export(app.repository.sessions.value, app.repository::clipFile, out)
+            Backup.export(app.repository.sessions.value, app.repository::clipFile, out, WeightStore.get(app.filesDir).log.value)
         } ?: throw IllegalStateException()
         "Backed up $n ${if (n == 1) "night" else "nights"}."
     }
@@ -62,17 +63,20 @@ object DataJobs {
                 File(cacheDir, "restore"),
                 app.repository::clipDir,
                 app.repository::save,
-            ) { files -> if (files % 10 == 0) progress("Restoring… $files files read") }
+                onProgress = { files -> if (files % 10 == 0) progress("Restoring… $files files read") },
+                mergeWeight = WeightStore.get(app.filesDir)::mergeFrom,
+            )
         } ?: throw IllegalStateException()
         buildString {
             append("Added ${r.added} ${if (r.added == 1) "night" else "nights"}.")
             if (r.skipped > 0) append(" ${r.skipped} already here.")
             if (r.invalid > 0) append(" ${r.invalid} could not be read.")
+            if (r.weightsAdded > 0) append(" Added ${r.weightsAdded} weight ${if (r.weightsAdded == 1) "entry" else "entries"}.")
         }
     }
 
     fun exportCsv(app: QuietNightApp, resolver: ContentResolver, uri: Uri) = run("Saving CSV…") {
-        val text = Csv.export(app.repository.sessions.value)
+        val text = Csv.export(app.repository.sessions.value, WeightStore.get(app.filesDir).log.value)
         resolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) } ?: throw IllegalStateException()
         "Saved the spreadsheet file."
     }

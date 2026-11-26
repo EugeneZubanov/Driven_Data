@@ -8,7 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -22,7 +22,8 @@ import com.quietnight.app.Reminder
 @Composable
 fun rememberReminderToggle(app: QuietNightApp): (Boolean, Int) -> Unit {
     val context = LocalContext.current
-    var pendingMinute by remember { mutableIntStateOf(-1) }
+    // Saveable so the choice survives the activity being recreated while the permission dialog is up.
+    var pendingMinute by rememberSaveable { mutableIntStateOf(-1) }
     fun apply(on: Boolean, minute: Int) {
         app.settings.update { it.copy(reminderOn = on, reminderMinute = minute) }
         Reminder.sync(context)

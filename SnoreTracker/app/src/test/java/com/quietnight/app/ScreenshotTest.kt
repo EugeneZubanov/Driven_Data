@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -64,6 +67,25 @@ class ScreenshotTest {
 
     private val now = 1_795_700_000_000L // late Nov 2026
     private val sessions = DemoData.generate(now).sortedByDescending { it.startMs }
+
+    /** Renders at a larger font size, as with the system's "Font size" setting. */
+    private fun bigFont(content: @Composable () -> Unit): @Composable () -> Unit = {
+        val d = LocalDensity.current
+        CompositionLocalProvider(LocalDensity provides Density(d.density, 1.3f)) { content() }
+    }
+
+    @Test @Config(qualifiers = "w411dp-h3600dp-xhdpi")
+    fun trendsLargeFont() = shot("trends-font130", bigFont { TrendsScreen(sessions) })
+
+    @Test @Config(qualifiers = "w411dp-h2400dp-xhdpi")
+    fun settingsLargeFont() = shot("settings-font130", bigFont {
+        SettingsScreen(
+            Prefs(reminderOn = true), false, true, {}, {}, {}, {}, {}, {}, {}, "Added 12 nights. 3 already here.",
+            onShowIntro = {}, onReminder = { _, _ -> }, weight = WeightLog(), onWeight = {},
+        )
+    })
+
+    @Test fun introLargeFont() = shot("intro-font130", bigFont { IntroScreen({}, startPage = 2) })
 
     private fun shot(name: String, content: @Composable () -> Unit) {
         compose.setContent {
