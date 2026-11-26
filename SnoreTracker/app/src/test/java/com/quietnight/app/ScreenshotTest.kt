@@ -220,6 +220,15 @@ class ScreenshotTest {
         compose.onRoot().captureRoboImage("build/shots/record-360-font130-tonight.png")
     }
 
+    @Test fun recordFullAudio() {
+        shot("record-full-audio") {
+            RecordScreen(Prefs(), RecState(), null, {}, {}, {}, {}, nowMs = { now }, fullAudio = true)
+        }
+        compose.onNodeWithText("Full-night audio").performScrollTo().performClick()
+        compose.onNodeWithText("Full-night audio").performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/record-full-audio.png")
+    }
+
     @Test fun recordingDimmed() = shot("recording-dimmed") {
         RecordScreen(
             Prefs(), RecState(recording = true, startMs = now - 3 * 3600_000L, listening = true),
