@@ -141,6 +141,12 @@ class Scene(val seconds: Double, seed: Int, val rate: Int = 16000) {
         }
     }
 
+    /** One pulsed snore at an exact time (for timing tests). */
+    fun snoreAt(t: Double, dur: Double, rms: Double, pulseHz: Double = 35.0) = apply {
+        mix(t, snoreSound(dur, pulseHz, false), rms, 0.25, 0.3)
+        snores += longArrayOf((t * 1000).toLong(), ((t + dur) * 1000).toLong())
+    }
+
     private fun snoreSound(dur: Double, pulseHz: Double, noisy: Boolean): DoubleArray {
         val s = seg(dur)
         val f1 = Reso(r(120.0, 200.0), 70.0)
