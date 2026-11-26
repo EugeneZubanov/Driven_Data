@@ -58,9 +58,11 @@ object RecordingPolicy {
     /**
      * How far the night's timeline may fall behind the wall clock (audio lost to a stall or an
      * overrun) before the missing time is added back as quiet. Some lag is normal: the
-     * microphone's own buffer holds up to a second of audio not yet read.
+     * microphone's own buffer (MIC_BUFFER_SECONDS) can hold that much audio not yet read, so the
+     * limit must exceed it or buffered audio would be counted twice.
      */
-    const val MAX_LAG_MS = 3_000L
+    const val MIC_BUFFER_SECONDS = 4
+    const val MAX_LAG_MS = (MIC_BUFFER_SECONDS + 1) * 1_000L
 
     /** Milliseconds to add to the timeline now, or 0. Leaves a second of normal buffering lag in place. */
     fun catchUpMs(wallOffsetMs: Long, timelineMs: Long): Long {

@@ -265,9 +265,9 @@ class RecordingService : Service() {
                         if (catchUp > 0) { recorder?.skip(catchUp); accountedSamples += catchUp * rate / 1000; audioWriter?.gap() }
                     }
                     audioWriter?.let { w ->
-                        if (w.failed) { w.close(); audioNote = AUDIO_FAILED; audioWriter = null }
+                        if (w.failed) { w.closeNow(); audioNote = AUDIO_FAILED; audioWriter = null }
                         else if (RecordingEnv.freeBytes(this) < NightAudioWriter.MIN_FREE_BYTES) {
-                            w.close(); audioNote = AUDIO_LOW_STORAGE; audioWriter = null
+                            w.closeNow(); audioNote = AUDIO_LOW_STORAGE; audioWriter = null
                         }
                     }
                 }

@@ -183,6 +183,9 @@ class RecordingPolicyTest {
     }
 
     @Test fun catchUpOnlyBeyondNormalBufferingLag() {
+        // A stall the mic buffer still covers must not be counted twice.
+        assertEquals(0L, RecordingPolicy.catchUpMs(10_000, 10_000 - RecordingPolicy.MIC_BUFFER_SECONDS * 1_000L))
+        assertTrue(RecordingPolicy.MAX_LAG_MS > RecordingPolicy.MIC_BUFFER_SECONDS * 1_000L)
         assertEquals(0L, RecordingPolicy.catchUpMs(10_000, 9_000))
         assertEquals(0L, RecordingPolicy.catchUpMs(10_000, 7_000))
         assertEquals(7_000L, RecordingPolicy.catchUpMs(20_000, 12_000))

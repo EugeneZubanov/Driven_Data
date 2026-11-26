@@ -196,6 +196,29 @@ class NightAudioTest {
         assertFalse(sink.isRunning)
     }
 
+    @Test fun closeNowDoesNotWaitForAStuckEncoder() {
+        val release = java.util.concurrent.CountDownLatch(1)
+        val inner = NightAudioWriter(dir, rate, { f, _ ->
+            FakeEncoder(f).let { enc ->
+                object : SegmentEncoder {
+                    override fun write(pcm: ShortArray, n: Int) { release.await(); enc.write(pcm, n) }
+                    override fun finish() = enc.finish()
+                }
+            }
+        }, segmentMs = 60_000)
+        val sink = com.quietnight.app.audio.AsyncAudioSink(inner, capacity = 10)
+        var t = 0L
+        repeat(50) { sink.write(buf, buf.size, t); t += 100 }
+        val started = System.nanoTime()
+        sink.closeNow()
+        assertTrue("closeNow blocked", System.nanoTime() - started < 500_000_000L)
+        release.countDown()
+        sink.close() // idempotent; the thread finishes on its own
+        val deadline = System.currentTimeMillis() + 5_000
+        while (sink.isRunning && System.currentTimeMillis() < deadline) Thread.sleep(10)
+        assertFalse(sink.isRunning)
+    }
+
     @Test fun asyncSinkFinishesTheLastSegmentOnClose() {
         val sink = com.quietnight.app.audio.AsyncAudioSink(NightAudioWriter(dir, rate, { f, _ -> FakeEncoder(f) }, segmentMs = 60_000), capacity = 1000)
         var t = 0L

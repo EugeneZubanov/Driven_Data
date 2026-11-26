@@ -98,7 +98,7 @@ fun <T : Any> firstWorkingSource(sources: List<Int>, open: (Int) -> T?): T? {
 @SuppressLint("MissingPermission") // callers check RECORD_AUDIO first
 private fun openAt(source: Int, rate: Int, minBuf: Int): AudioRecord? {
     val audio = try {
-        AudioRecord(source, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, rate * 8)) // ~4 s of 16-bit audio, so a slow moment cannot overrun
+        AudioRecord(source, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, rate * 2 * RecordingPolicy.MIC_BUFFER_SECONDS)) // 16-bit mono, so a slow moment cannot overrun
     } catch (e: Exception) {
         return null
     }

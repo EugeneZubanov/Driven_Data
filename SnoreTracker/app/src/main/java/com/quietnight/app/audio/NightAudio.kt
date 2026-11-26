@@ -141,6 +141,8 @@ interface AudioSink {
     fun write(pcm: ShortArray, n: Int, offsetMs: Long)
     fun gap()
     fun close()
+    /** Like [close] but never blocks the caller; used mid-night on the recording thread. */
+    fun closeNow() = close()
 }
 
 /**
@@ -185,16 +187,29 @@ class AsyncAudioSink(private val inner: AudioSink, capacity: Int = 100) : AudioS
     }
 
     override fun gap() {
-        if (!closed) queue.offer(Cmd.Gap)
+        if (closed) return
+        if (!queue.offer(Cmd.Gap)) { // full: same as an overflow, so the segment cannot run across the gap
+            overflowed = true
+            queue.clear()
+            queue.offer(Cmd.Gap)
+        }
     }
 
-    override fun close() {
+    override fun close() = close(10_000)
+    override fun closeNow() = close(0)
+
+    /**
+     * Stops the encoder thread. [waitMs] 0 never blocks (for use mid-night on the recording
+     * thread, typically when the encoder is stuck); the thread then finishes on its own.
+     */
+    fun close(waitMs: Long) {
         if (closed) return
         closed = true
-        if (!queue.offer(Cmd.Close, 2, java.util.concurrent.TimeUnit.SECONDS)) {
+        if (!queue.offer(Cmd.Close, waitMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
             queue.clear(); queue.offer(Cmd.Close)
         }
-        thread.join(10_000)
+        if (waitMs <= 0) return
+        thread.join(waitMs)
         if (thread.isAlive) thread.interrupt()
     }
 }
@@ -213,7 +228,7 @@ class NightAudioWriter(
     private var currentStartMs = 0L
     private var currentSamples = 0L
 
-    override var failed = false
+    @Volatile override var failed = false
         private set
     val segments: List<AudioSegment> get() = done.toList()
 
