@@ -125,14 +125,18 @@ fun RecordScreen(
     fullAudioSupported: Boolean = true,
     /** The phone's 12/24-hour setting; null reads it from the context. */
     is24Hour: Boolean? = null,
+    /** False when the app may not post notifications: the wake-up alarm could not ring. */
+    notificationsAllowed: Boolean = true,
 ) {
     val h24 = is24Hour ?: DateFormat.is24HourFormat(LocalContext.current)
-    CompositionLocalProvider(LocalIs24Hour provides h24) { RecordScreenBody(
+    CompositionLocalProvider(LocalIs24Hour provides h24, LocalNotificationsAllowed provides notificationsAllowed) { RecordScreenBody(
         prefs, rec, lastSession, onStart, onStop, onPrefs, onOpenSession, nowMs, batteryExempt, onFixBattery, startWarnings,
         onDismissNotice, mic, onMicCheck, onDimmed, onKeepScreenOn, dimAfterMs, wake, onWake, onTestRun, manufacturer,
         fullAudio && fullAudioSupported, onFullAudio, fullAudioSupported,
     ) }
 }
+
+private val LocalNotificationsAllowed = staticCompositionLocalOf { true }
 
 /** 12/24-hour setting for the times shown on the Record tab. */
 private val LocalIs24Hour = staticCompositionLocalOf { true }
@@ -567,6 +571,12 @@ private fun WakeCard(wake: WakeSetting, onWake: (WakeSetting) -> Unit, framed: B
                         if (wake.enabled) "Stops recording and rings at this time." else "Off",
                         color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
                     )
+                    if (wake.enabled && !LocalNotificationsAllowed.current) {
+                        Text(
+                            "Notifications are off for Quiet Night, so the alarm cannot ring. Allow them in the phone's settings.",
+                            color = Palette.Loud, style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
                 Switch(checked = wake.enabled, onCheckedChange = { onWake(wake.copy(enabled = it)) }, modifier = Modifier.semantics { contentDescription = "Wake-up alarm" })
             }
