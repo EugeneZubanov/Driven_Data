@@ -134,3 +134,22 @@ class RecordingPolicyTest {
         assertTrue(r.listening)
     }
 }
+
+class MicCheckTest {
+    @Test fun levelOfSilenceAndFullScale() {
+        org.junit.Assert.assertEquals(-100f, com.quietnight.app.audio.MicCheck.dbfs(ShortArray(100), 100), 0.01f)
+        val loud = ShortArray(100) { if (it % 2 == 0) 32767 else -32767 }
+        org.junit.Assert.assertEquals(0f, com.quietnight.app.audio.MicCheck.dbfs(loud, 100), 0.1f)
+        org.junit.Assert.assertEquals(0f, com.quietnight.app.audio.MicCheck.barFraction(-90f), 0f)
+        org.junit.Assert.assertEquals(1f, com.quietnight.app.audio.MicCheck.barFraction(-10f), 0f)
+    }
+
+    @Test fun heardNeedsAClearRiseAboveTheRoom() {
+        val room = List(10) { -62f }
+        org.junit.Assert.assertFalse(com.quietnight.app.audio.MicCheck.heard(room + List(20) { -55f }))
+        org.junit.Assert.assertTrue(com.quietnight.app.audio.MicCheck.heard(room + List(20) { -62f } + listOf(-45f)))
+        org.junit.Assert.assertFalse(com.quietnight.app.audio.MicCheck.heard(room))
+        // A loud first second sets a high baseline rather than counting as heard.
+        org.junit.Assert.assertFalse(com.quietnight.app.audio.MicCheck.heard(List(10) { -40f } + List(10) { -45f }))
+    }
+}
