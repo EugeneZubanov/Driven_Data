@@ -13,6 +13,8 @@ import android.os.SystemClock
 interface MicInput {
     /** Samples per second this input actually delivers. */
     val sampleRate: Int
+    /** How much audio the input can hold unread, in ms. */
+    val bufferMs: Long get() = RecordingPolicy.MIC_BUFFER_MS
     /** Blocking read like [AudioRecord.read]: samples read, 0, or a negative error code. */
     fun read(buf: ShortArray, size: Int): Int
     /** True when the system is feeding silence because a call or another app has the microphone. */
@@ -97,12 +99,17 @@ fun <T : Any> firstWorkingSource(sources: List<Int>, open: (Int) -> T?): T? {
 
 @SuppressLint("MissingPermission") // callers check RECORD_AUDIO first
 private fun openAt(source: Int, rate: Int, minBuf: Int): AudioRecord? {
-    val audio = try {
-        AudioRecord(source, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, rate * 8)) // ~4 s of 16-bit audio, so a slow moment cannot overrun
-    } catch (e: Exception) {
-        return null
-    }
-    if (audio.state != AudioRecord.STATE_INITIALIZED) { audio.release(); return null }
+    // Ask for ~4 s of 16-bit audio so a slow moment cannot overrun; if the phone refuses that,
+    // fall back to ~1 s rather than losing this rate and source altogether.
+    val bytesWanted = (RecordingPolicy.MIC_BUFFER_MS * rate / 1000 * 2).toInt()
+    val audio = listOf(maxOf(minBuf, bytesWanted), maxOf(minBuf, rate * 2)).distinct().firstNotNullOfOrNull { bytes ->
+        val a = try {
+            AudioRecord(source, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bytes)
+        } catch (e: Exception) {
+            null
+        }
+        if (a != null && a.state != AudioRecord.STATE_INITIALIZED) { a.release(); null } else a
+    } ?: return null
     try {
         audio.startRecording()
     } catch (e: Exception) {
@@ -116,6 +123,8 @@ private fun openAudioRecord(context: Context, rates: List<Int>): MicInput? = fir
     openRawAudioRecord(context, rate)?.let { audio ->
         object : MicInput {
             override val sampleRate = rate
+            // The buffer actually granted, which catch-up must allow for.
+            override val bufferMs = runCatching { audio.bufferSizeInFrames * 1000L / rate }.getOrDefault(1_000L)
             override fun read(buf: ShortArray, size: Int) = audio.read(buf, 0, size)
             override fun silenced() =
                 Build.VERSION.SDK_INT >= 29 && runCatching { audio.activeRecordingConfiguration?.isClientSilenced == true }.getOrDefault(false)

@@ -140,7 +140,8 @@ interface AudioSink {
     val failed: Boolean
     fun write(pcm: ShortArray, n: Int, offsetMs: Long)
     fun gap()
-    fun close()
+    /** Ends full audio. [waitMs] bounds how long the caller may wait for the last segment to finish. */
+    fun close(waitMs: Long = 10_000)
 }
 
 /**
@@ -185,16 +186,28 @@ class AsyncAudioSink(private val inner: AudioSink, capacity: Int = 100) : AudioS
     }
 
     override fun gap() {
-        if (!closed) queue.offer(Cmd.Gap)
+        if (closed) return
+        if (!queue.offer(Cmd.Gap)) {
+            // Losing a gap would let a segment run across it with a wrong start; treat as overflow.
+            overflowed = true
+            queue.clear()
+            queue.offer(Cmd.Gap)
+        }
     }
 
-    override fun close() {
+    /**
+     * With [waitMs] = 0 (mid-night, on the recording thread) this only asks the thread to finish
+     * and returns at once; the thread ends on its own. At the end of the night the caller waits up
+     * to [waitMs] for the last segment, then interrupts.
+     */
+    override fun close(waitMs: Long) {
         if (closed) return
         closed = true
-        if (!queue.offer(Cmd.Close, 2, java.util.concurrent.TimeUnit.SECONDS)) {
+        if (!queue.offer(Cmd.Close, minOf(waitMs, 2_000L), java.util.concurrent.TimeUnit.MILLISECONDS)) {
             queue.clear(); queue.offer(Cmd.Close)
         }
-        thread.join(10_000)
+        if (waitMs <= 0) return
+        thread.join(waitMs)
         if (thread.isAlive) thread.interrupt()
     }
 }
@@ -213,7 +226,7 @@ class NightAudioWriter(
     private var currentStartMs = 0L
     private var currentSamples = 0L
 
-    override var failed = false
+    @Volatile override var failed = false
         private set
     val segments: List<AudioSegment> get() = done.toList()
 
@@ -245,7 +258,7 @@ class NightAudioWriter(
     }
 
     /** End of the night, or full audio turned off (e.g. storage low). */
-    override fun close() = gap()
+    override fun close(waitMs: Long) = gap()
 
     private fun endSegment() {
         val enc = current ?: return
