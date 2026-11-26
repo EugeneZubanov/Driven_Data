@@ -75,6 +75,7 @@ object Backup {
         staging: File,
         clipDir: (String) -> File,
         save: (Session) -> Unit,
+        onProgress: (filesRead: Int) -> Unit = {},
     ): RestoreResult {
         staging.deleteRecursively()
         staging.mkdirs()
@@ -103,6 +104,7 @@ object Backup {
                         total += copyLimited(zip, target, MAX_CLIP_BYTES)
                     }
                     if (total > MAX_TOTAL_BYTES) throw BackupException("Backup is too large")
+                    onProgress(entries)
                 }
             }
             val bytes = index ?: throw BackupException("Not a Quiet Night backup")
