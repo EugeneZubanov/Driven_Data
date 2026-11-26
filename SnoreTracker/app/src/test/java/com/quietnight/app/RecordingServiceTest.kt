@@ -49,6 +49,10 @@ class RecordingServiceTest {
     /** Capture rates the simulated phone supports, and every rate list the service asked for. */
     private var supportedRates = listOf(16000)
     private var overrunAtSec: Double? = null
+    private var noiseGate = false
+    /** Samples per read if the phone delivers less than asked (e.g. 4096 at 44.1 kHz). */
+    private var readSize: Int? = null
+    private var subMs = 0.0
     private val requested = java.util.Collections.synchronizedList(ArrayList<List<Int>>())
 
     private inner class FakeMic(override val sampleRate: Int) : MicInput {
@@ -64,10 +68,17 @@ class RecordingServiceTest {
                 overrunAtSec = null
                 clockMs.addAndGet(8_000)
             }
-            val chunk = TestAudio.chunk(t, size, rnd, snoring, sampleRate)
+            val n = minOf(size, readSize ?: size)
+            val chunk = TestAudio.chunk(t, n, rnd, snoring, sampleRate)
+            // A noise gate (strong noise suppression) outputs exact zeros for anything quiet.
+            if (noiseGate) for (i in 0 until n) if (kotlin.math.abs(chunk[i].toInt()) < 300) chunk[i] = 0
             chunk.copyInto(buf)
-            clockMs.addAndGet(size * 1000L / sampleRate)
-            return size
+            // Advance the clock by exactly the audio delivered, carrying fractions of a millisecond.
+            subMs += n * 1000.0 / sampleRate
+            val whole = subMs.toLong()
+            subMs -= whole
+            clockMs.addAndGet(whole)
+            return n
         }
         override fun silenced() = false
         override fun close() {}
@@ -85,6 +96,9 @@ class RecordingServiceTest {
         // Simulated time flies, but slowly enough for the test thread to step in.
         RecordingEnv.sleep = { clockMs.addAndGet(it); Thread.sleep(1) }
         RecordingEnv.battery = { battery }
+        // Simulated time runs ~100x faster than real time, which would overflow the encoder
+        // queue; the async sink has its own tests in NightAudioTest.
+        RecordingEnv.audioSink = { it }
         RecordingService.clearFinished()
         RecordingService.clearNotice()
         controller = Robolectric.buildService(RecordingService::class.java, Intent(app, RecordingService::class.java)).create()
@@ -272,6 +286,49 @@ class RecordingServiceTest {
         val s = saved(RecordingService.state.value.finishedId)
         assertTrue("duration ${s.durationSec}", s.durationSec in 899..903)
         assertNull(RecordingService.state.value.notice)
+    }
+
+    @Test fun noiseGatedMicrophoneKeepsSnoresAndMakesNoGaps() {
+        noiseGate = true
+        snoring = { true }
+        com.quietnight.app.audio.NightAudioPref.set(app, true)
+        RecordingEnv.encoder = com.quietnight.app.audio.EncoderFactory { f, _ -> FakeEncoder(f) }
+        RecordingEnv.audioSupported = { true }
+        stops += 300.0
+        try {
+            startNight()
+            awaitNightEnd()
+        } finally {
+            com.quietnight.app.audio.NightAudioPref.set(app, false)
+        }
+        val s = saved(RecordingService.state.value.finishedId)
+        assertTrue("gaps ${s.gaps}", s.gaps.isEmpty())
+        assertTrue("duration ${s.durationSec}", s.durationSec in 299..302)
+        assertTrue("snoring buckets ${s.levels.count { it > 0 }}", s.levels.count { it > 0 } >= 10)
+        val segs = com.quietnight.app.audio.SegmentIndex.read(app.repository.clipDir(s.id))
+        assertEquals(1, segs.size)
+        assertTrue(segs[0].durationMs in 299_000L..302_000L)
+    }
+
+    @Test fun oddReadSizesAt44kHzDoNotDriftOrSplitTheNight() {
+        supportedRates = listOf(44100)
+        readSize = 4096
+        com.quietnight.app.audio.NightAudioPref.set(app, true)
+        RecordingEnv.encoder = com.quietnight.app.audio.EncoderFactory { f, _ -> FakeEncoder(f) }
+        RecordingEnv.audioSupported = { true }
+        stops += 1200.0
+        try {
+            startNight()
+            awaitNightEnd()
+        } finally {
+            com.quietnight.app.audio.NightAudioPref.set(app, false)
+        }
+        val s = saved(RecordingService.state.value.finishedId)
+        assertTrue("duration ${s.durationSec}", s.durationSec in 1199..1201)
+        assertTrue(s.gaps.isEmpty())
+        // No catch-up fired: it would have ended a segment early. Exactly two 10-minute files.
+        val segs = com.quietnight.app.audio.SegmentIndex.read(app.repository.clipDir(s.id))
+        assertEquals(listOf(0L, 600_000L), segs.map { it.startMs }.map { it / 100 * 100 })
     }
 
     @Test fun lowBatteryStopsAndSavesWithANote() {
