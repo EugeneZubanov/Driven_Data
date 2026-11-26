@@ -406,6 +406,7 @@ class RecordingService : Service() {
         fun recoverInterrupted(app: QuietNightApp) {
             val sp = app.getSharedPreferences(MARK_PREFS, Context.MODE_PRIVATE)
             val markerId = sp.getString(MARK_ID, null)
+            if (markerId != null) app.repository.ensureLoaded() // need the saved nights to decide
             val saved = markerId?.let { id -> app.repository.sessions.value.firstOrNull { it.id == id } }
             val outcome = NightRecovery.check(markerId, saved, active) ?: return
             when (outcome) {

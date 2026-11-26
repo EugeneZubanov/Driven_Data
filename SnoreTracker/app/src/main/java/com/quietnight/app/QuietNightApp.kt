@@ -12,7 +12,7 @@ class QuietNightApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        repository = SessionRepository(filesDir).also { it.load() }
+        repository = SessionRepository(filesDir).also { it.loadInBackground() }
         settings = Settings(this)
     }
 }
