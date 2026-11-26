@@ -37,6 +37,8 @@ class Session(
     val tags: List<String>,
     val clips: List<Clip>,
     val demo: Boolean = false,
+    /** Short free-text note added after the night; empty when none. */
+    val note: String = "",
 ) {
     val durationSec: Int get() = ((endMs - startMs) / 1000).toInt()
 
@@ -79,7 +81,12 @@ class Session(
             }
         })
         put("demo", demo)
+        if (note.isNotEmpty()) put("note", note)
     }
+
+    /** Same night with tags and note changed after the fact. */
+    fun withEdits(tags: List<String>, note: String): Session =
+        Session(id, startMs, endMs, bucketSec, levels, amps, tags, clips, demo, note)
 
     companion object {
         val WEIGHTS = floatArrayOf(0.4f, 1.0f, 2.0f)
@@ -100,6 +107,7 @@ class Session(
                     Clip(c.getInt("t"), c.getString("f"), c.getInt("l"), c.getInt("a"))
                 },
                 demo = o.optBoolean("demo", false),
+                note = o.optString("note", ""),
             )
         }
     }
