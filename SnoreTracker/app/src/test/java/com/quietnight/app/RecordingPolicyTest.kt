@@ -5,6 +5,7 @@ import com.quietnight.app.audio.NightRecorder
 import com.quietnight.app.audio.NightRecovery
 import com.quietnight.app.audio.RecordingPolicy
 import com.quietnight.app.audio.RecordingPolicy.StopReason
+import com.quietnight.app.audio.ServiceLifecycle
 import com.quietnight.app.audio.withRecordingInfo
 import com.quietnight.app.data.Gap
 import com.quietnight.app.data.Session
@@ -110,6 +111,33 @@ class RecordingPolicyTest {
         val old = Session.fromJson(plain)
         assertEquals(0L, old.interruptedAtMs)
         assertTrue(old.gaps.isEmpty())
+    }
+
+    @Test fun plannedStops() {
+        assertNull(RecordingPolicy.plannedStop(4 * 60_000L, 1_000L, RecordingPolicy.TEST_RUN_MS, 0))
+        assertEquals(StopReason.TEST_DONE, RecordingPolicy.plannedStop(5 * 60_000L, 1_000L, RecordingPolicy.TEST_RUN_MS, 0))
+        assertNull(RecordingPolicy.plannedStop(hour, 999L, 0, 1_000L))
+        assertEquals(StopReason.WAKE_TIME, RecordingPolicy.plannedStop(hour, 1_000L, 0, 1_000L))
+        assertNull(RecordingPolicy.plannedStop(20 * hour, 5_000L, 0, 0))
+    }
+
+    @Test fun nextWakeTimeIsTomorrowMorningAndHandlesDaylightSaving() {
+        val zone = java.time.ZoneId.of("Europe/London")
+        fun ms(s: String) = java.time.ZonedDateTime.of(java.time.LocalDateTime.parse(s), zone).toInstant().toEpochMilli()
+        assertEquals(ms("2026-11-27T07:00"), RecordingPolicy.nextWakeTime(ms("2026-11-26T23:10"), 7, 0, zone))
+        assertEquals(ms("2026-11-27T07:00"), RecordingPolicy.nextWakeTime(ms("2026-11-27T01:30"), 7, 0, zone))
+        assertEquals(ms("2026-11-28T07:00"), RecordingPolicy.nextWakeTime(ms("2026-11-27T07:00"), 7, 0, zone))
+        // Clocks go back on 25 Oct 2026: 23:00 to 07:00 is 9 real hours that night.
+        assertEquals(9 * hour, RecordingPolicy.nextWakeTime(ms("2026-10-24T23:00"), 7, 0, zone) - ms("2026-10-24T23:00"))
+    }
+
+    @Test fun serviceLifecycle() {
+        assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = false))
+        assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = true))
+        assertEquals(ServiceLifecycle.OnStart.QUEUE_AFTER_CURRENT, ServiceLifecycle.onStart(workerAlive = true, workerStopping = true))
+        assertEquals(ServiceLifecycle.OnStart.IGNORE_DUPLICATE, ServiceLifecycle.onStart(workerAlive = true, workerStopping = false))
+        assertEquals(ServiceLifecycle.OnWorkerEnd.RELAUNCH, ServiceLifecycle.onWorkerEnd(startQueued = true))
+        assertEquals(ServiceLifecycle.OnWorkerEnd.STOP_SERVICE, ServiceLifecycle.onWorkerEnd(startQueued = false))
     }
 
     @Test fun skipKeepsTimelineOnWallClock() {

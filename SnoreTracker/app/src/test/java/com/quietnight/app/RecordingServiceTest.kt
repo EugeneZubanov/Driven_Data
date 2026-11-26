@@ -1,0 +1,219 @@
+package com.quietnight.app
+
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.os.Looper
+import androidx.test.core.app.ApplicationProvider
+import com.quietnight.app.audio.MicInput
+import com.quietnight.app.audio.RecordingEnv
+import com.quietnight.app.audio.RecordingService
+import com.quietnight.app.data.Session
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.android.controller.ServiceController
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.random.Random
+
+/**
+ * Drives the real [RecordingService] through simulated nights: a fake microphone hands out audio
+ * in step with a fake clock, so minutes pass in milliseconds. The nearest thing to a device test.
+ */
+@RunWith(RobolectricTestRunner::class)
+class RecordingServiceTest {
+    private val app = ApplicationProvider.getApplicationContext<QuietNightApp>()
+    private val clockMs = AtomicLong(0)
+    private val wallBase = 1_795_650_000_000L
+    private var battery: Pair<Int?, Boolean> = 90 to true
+
+    /** Wall-clock seconds when the microphone is taken by "a call". */
+    private var takenSec = -1.0..-1.0
+    /** Wall-clock seconds at which the next stop is pressed. */
+    private val stops = ArrayDeque<Double>()
+    private var snoring: (Double) -> Boolean = { false }
+    private lateinit var controller: ServiceController<RecordingService>
+    private val rnd = Random(7)
+
+    private fun now() = clockMs.get() / 1000.0
+
+    private inner class FakeMic : MicInput {
+        override fun read(buf: ShortArray, size: Int): Int {
+            val t = now()
+            if (stops.isNotEmpty() && t >= stops.first()) {
+                stops.removeFirst()
+                controller.get().onStartCommand(Intent(app, RecordingService::class.java).setAction("com.quietnight.app.STOP"), 0, 99)
+            }
+            if (t in takenSec) return -3 // AudioRecord.ERROR_INVALID_OPERATION
+            val chunk = TestAudio.chunk(t, size, rnd, snoring)
+            chunk.copyInto(buf)
+            clockMs.addAndGet(size * 1000L / TestAudio.RATE)
+            return size
+        }
+        override fun silenced() = false
+        override fun close() {}
+    }
+
+    @Before fun setUp() {
+        shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        app.settings.update { it.copy(delayMin = 0, saveClips = true) }
+        RecordingEnv.openMic = { if (now() in takenSec) null else FakeMic() }
+        RecordingEnv.elapsedMs = { clockMs.get() }
+        RecordingEnv.wallMs = { wallBase + clockMs.get() }
+        // Simulated time flies, but slowly enough for the test thread to step in.
+        RecordingEnv.sleep = { clockMs.addAndGet(it); Thread.sleep(1) }
+        RecordingEnv.battery = { battery }
+        RecordingService.clearFinished()
+        RecordingService.clearNotice()
+        controller = Robolectric.buildService(RecordingService::class.java, Intent(app, RecordingService::class.java)).create()
+    }
+
+    @After fun tearDown() {
+        RecordingEnv.reset()
+    }
+
+    private fun startNight() = controller.get().onStartCommand(Intent(app, RecordingService::class.java), 0, 1)
+
+    /** Waits for the worker thread to save and hand back to the main thread. */
+    private fun awaitNightEnd() {
+        val deadline = System.currentTimeMillis() + 120_000
+        while (RecordingService.isRecording || RecordingService.state.value.finishedId == null && RecordingService.state.value.error == null) {
+            assertTrue("night did not end", System.currentTimeMillis() < deadline)
+            Thread.sleep(20)
+        }
+        Thread.sleep(50)
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun saved(id: String?): Session = app.repository.sessions.value.first { it.id == id }
+
+    private fun marker() = app.getSharedPreferences("recording", Context.MODE_PRIVATE).getString("activeId", null)
+
+    @Test fun nightWithAPhoneCallKeepsTimelineGapsAndSnores() {
+        snoring = { t -> t in 60.0..120.0 || t in 360.0..420.0 }
+        takenSec = 180.0..300.0
+        stops += 540.0
+        startNight()
+        awaitNightEnd()
+
+        val state = RecordingService.state.value
+        assertNull(state.error)
+        val s = saved(state.finishedId)
+        assertTrue("duration ${s.durationSec}", s.durationSec in 538..545)
+        assertEquals(1, s.gaps.size)
+        val g = s.gaps.single()
+        assertTrue("gap $g", g.fromSec in 179..181 && g.toSec in 300..340)
+
+        val snoringBuckets = s.levels.indices.filter { s.levels[it] > 0 }
+        assertTrue("buckets $snoringBuckets", snoringBuckets.any { it in 6..12 })
+        assertTrue("buckets $snoringBuckets", snoringBuckets.any { it in 36..42 })
+        assertTrue("buckets $snoringBuckets", snoringBuckets.all { it in 5..13 || it in 35..43 })
+        assertTrue(s.clips.isNotEmpty())
+        assertEquals(0L, s.interruptedAtMs)
+
+        assertNull("marker cleared", marker())
+        assertFalse(RecordingService.isRecording)
+        assertTrue(shadowOf(controller.get()).isStoppedBySelf)
+    }
+
+    @Test fun lowBatteryStopsAndSavesWithANote() {
+        battery = 50 to false
+        startNight()
+        // The battery runs low ten minutes in.
+        val watcher = Thread {
+            while (now() < 600) Thread.sleep(2)
+            battery = 4 to false
+        }.apply { start() }
+        awaitNightEnd()
+        watcher.join()
+        val state = RecordingService.state.value
+        val s = saved(state.finishedId)
+        assertTrue("duration ${s.durationSec}", s.durationSec in 600..610)
+        assertNotNull(state.notice)
+        assertTrue(state.notice!!.contains("battery"))
+        assertEquals(s.id, state.noticeSessionId)
+    }
+
+    @Test fun startWhileThePreviousNightIsSavingIsQueuedNotLost() {
+        stops += 60.0
+        stops += 200.0
+        startNight()
+        // Wait until night one has finished on its thread but not yet handed back to the main thread.
+        val deadline = System.currentTimeMillis() + 60_000
+        while (RecordingService.isRecording || RecordingService.state.value.finishedId == null) {
+            assertTrue(System.currentTimeMillis() < deadline); Thread.sleep(10)
+        }
+        val first = RecordingService.state.value.finishedId
+        startNight() // a second Start before the service has processed the end of the first
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse("service must not stop under the new night", shadowOf(controller.get()).isStoppedBySelf)
+        while (RecordingService.state.value.finishedId == first) {
+            assertTrue(System.currentTimeMillis() < deadline); Thread.sleep(10)
+        }
+        awaitNightEnd()
+        val second = RecordingService.state.value.finishedId
+        assertNotNull(second)
+        assertTrue(first != second)
+        assertEquals(2, app.repository.sessions.value.count { it.id == first || it.id == second })
+        assertTrue(shadowOf(controller.get()).isStoppedBySelf)
+    }
+
+    @Test fun stopPressedDuringMicrophoneBackoffSavesAndCountsTheGapToTheEnd() {
+        takenSec = 120.0..100_000.0
+        startNight()
+        while (now() < 400) Thread.sleep(2)
+        controller.get().onStartCommand(Intent(app, RecordingService::class.java).setAction("com.quietnight.app.STOP"), 0, 5)
+        awaitNightEnd()
+        val s = saved(RecordingService.state.value.finishedId)
+        assertTrue("duration ${s.durationSec}", s.durationSec >= 400)
+        assertEquals(120, s.gaps.single().fromSec)
+        assertTrue(s.gaps.single().toSec >= 400)
+    }
+
+    @Test fun testRunStopsAfterFiveMinutesAndIsLabelled() {
+        app.settings.update { it.copy(delayMin = 30) }
+        controller.get().onStartCommand(
+            Intent(app, RecordingService::class.java).putExtra("testRunMs", 5 * 60_000L), 0, 1,
+        )
+        awaitNightEnd()
+        val state = RecordingService.state.value
+        val s = saved(state.finishedId)
+        assertTrue("duration ${s.durationSec}", s.durationSec in 300..303)
+        assertEquals(RecordingService.TEST_RUN_NOTE, s.note)
+        assertNull("no note on the Record tab for a test run", state.notice)
+    }
+
+    @Test fun notificationStopAfterProcessDeathKeepsTheSavedNight() {
+        // A night saved 40 minutes in, then the process died; the marker is still set.
+        val start = wallBase - 3_600_000L
+        val partial = Session(
+            id = "s$start", startMs = start, endMs = start + 40 * 60_000L, bucketSec = 10,
+            levels = ByteArray(240), amps = ByteArray(240), tags = emptyList(), clips = emptyList(),
+        )
+        app.repository.save(partial)
+        app.getSharedPreferences("recording", Context.MODE_PRIVATE).edit().putString("activeId", partial.id).commit()
+
+        controller.get().onStartCommand(Intent(app, RecordingService::class.java).setAction("com.quietnight.app.STOP"), 0, 1)
+        assertEquals(partial.endMs, saved(partial.id).interruptedAtMs)
+        assertNull(marker())
+        assertTrue(RecordingService.state.value.notice!!.contains("cut short"))
+        assertTrue(shadowOf(controller.get()).isStoppedBySelf)
+    }
+
+    @Test fun deniedMicrophoneDoesNotStartAndExplains() {
+        shadowOf(app).denyPermissions(Manifest.permission.RECORD_AUDIO)
+        RecordingService.start(app)
+        assertFalse(RecordingService.isRecording)
+        assertTrue(RecordingService.state.value.error!!.contains("permission"))
+        assertNull(shadowOf(app).nextStartedService)
+    }
+}
