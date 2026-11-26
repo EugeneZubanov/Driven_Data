@@ -55,19 +55,26 @@ object RecordingPolicy {
         WAKE_TIME("Good morning. Recording stopped at your wake-up time and the night was saved."),
     }
 
-    /**
-     * How far the night's timeline may fall behind the wall clock (audio lost to a stall or an
-     * overrun) before the missing time is added back as quiet. Some lag is normal: the
-     * microphone's own buffer (MIC_BUFFER_SECONDS) can hold that much audio not yet read, so the
-     * limit must exceed it or buffered audio would be counted twice.
-     */
-    const val MIC_BUFFER_SECONDS = 4
-    const val MAX_LAG_MS = (MIC_BUFFER_SECONDS + 1) * 1_000L
+    /** Microphone buffer asked for: about this much audio can wait unread without being lost. */
+    const val MIC_BUFFER_MS = 4_000L
 
-    /** Milliseconds to add to the timeline now, or 0. Leaves a second of normal buffering lag in place. */
-    fun catchUpMs(wallOffsetMs: Long, timelineMs: Long): Long {
+    /**
+     * How far the timeline may lag the wall clock before time is added back as quiet: the
+     * microphone buffer (audio that may still arrive) plus a second of slack. Below this, a stall
+     * of the recording thread loses nothing and must not be counted twice.
+     */
+    fun maxLagMs(bufferMs: Long = MIC_BUFFER_MS): Long = bufferMs + 1_000L
+
+    const val MAX_LAG_MS = MIC_BUFFER_MS + 1_000L
+
+    /**
+     * Milliseconds to add to the timeline now, or 0. Only the part that cannot still be waiting in
+     * the microphone buffer is added, so audio read later is never counted twice; at worst a real
+     * loss is under-counted by the buffer length.
+     */
+    fun catchUpMs(wallOffsetMs: Long, timelineMs: Long, bufferMs: Long = MIC_BUFFER_MS): Long {
         val behind = wallOffsetMs - timelineMs
-        return if (behind > MAX_LAG_MS) behind - 1_000L else 0L
+        return if (behind > maxLagMs(bufferMs)) behind - bufferMs else 0L
     }
 
     /**

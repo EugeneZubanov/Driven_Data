@@ -261,13 +261,14 @@ class RecordingService : Service() {
                     if (stopReason != null) stopRequested = true
                     // Audio lost without a gap (a stall or overrun) must not shrink the night.
                     if (!gaps.inGap) {
-                        val catchUp = RecordingPolicy.catchUpMs(offsetNow(), accounted())
+                        val catchUp = RecordingPolicy.catchUpMs(offsetNow(), accounted(), audio?.bufferMs ?: RecordingPolicy.MIC_BUFFER_MS)
                         if (catchUp > 0) { recorder?.skip(catchUp); accountedSamples += catchUp * rate / 1000; audioWriter?.gap() }
                     }
                     audioWriter?.let { w ->
-                        if (w.failed) { w.closeNow(); audioNote = AUDIO_FAILED; audioWriter = null }
+                        // Mid-night: never wait on a stuck encoder from the recording thread.
+                        if (w.failed) { w.close(waitMs = 0); audioNote = AUDIO_FAILED; audioWriter = null }
                         else if (RecordingEnv.freeBytes(this) < NightAudioWriter.MIN_FREE_BYTES) {
-                            w.closeNow(); audioNote = AUDIO_LOW_STORAGE; audioWriter = null
+                            w.close(waitMs = 0); audioNote = AUDIO_LOW_STORAGE; audioWriter = null
                         }
                     }
                 }

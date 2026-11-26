@@ -140,9 +140,8 @@ interface AudioSink {
     val failed: Boolean
     fun write(pcm: ShortArray, n: Int, offsetMs: Long)
     fun gap()
-    fun close()
-    /** Like [close] but never blocks the caller; used mid-night on the recording thread. */
-    fun closeNow() = close()
+    /** Ends full audio. [waitMs] bounds how long the caller may wait for the last segment to finish. */
+    fun close(waitMs: Long = 10_000)
 }
 
 /**
@@ -188,24 +187,23 @@ class AsyncAudioSink(private val inner: AudioSink, capacity: Int = 100) : AudioS
 
     override fun gap() {
         if (closed) return
-        if (!queue.offer(Cmd.Gap)) { // full: same as an overflow, so the segment cannot run across the gap
+        if (!queue.offer(Cmd.Gap)) {
+            // Losing a gap would let a segment run across it with a wrong start; treat as overflow.
             overflowed = true
             queue.clear()
             queue.offer(Cmd.Gap)
         }
     }
 
-    override fun close() = close(10_000)
-    override fun closeNow() = close(0)
-
     /**
-     * Stops the encoder thread. [waitMs] 0 never blocks (for use mid-night on the recording
-     * thread, typically when the encoder is stuck); the thread then finishes on its own.
+     * With [waitMs] = 0 (mid-night, on the recording thread) this only asks the thread to finish
+     * and returns at once; the thread ends on its own. At the end of the night the caller waits up
+     * to [waitMs] for the last segment, then interrupts.
      */
-    fun close(waitMs: Long) {
+    override fun close(waitMs: Long) {
         if (closed) return
         closed = true
-        if (!queue.offer(Cmd.Close, waitMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+        if (!queue.offer(Cmd.Close, minOf(waitMs, 2_000L), java.util.concurrent.TimeUnit.MILLISECONDS)) {
             queue.clear(); queue.offer(Cmd.Close)
         }
         if (waitMs <= 0) return
@@ -260,7 +258,7 @@ class NightAudioWriter(
     }
 
     /** End of the night, or full audio turned off (e.g. storage low). */
-    override fun close() = gap()
+    override fun close(waitMs: Long) = gap()
 
     private fun endSegment() {
         val enc = current ?: return

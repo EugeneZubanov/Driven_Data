@@ -183,12 +183,15 @@ class RecordingPolicyTest {
     }
 
     @Test fun catchUpOnlyBeyondNormalBufferingLag() {
-        // A stall the mic buffer still covers must not be counted twice.
-        assertEquals(0L, RecordingPolicy.catchUpMs(10_000, 10_000 - RecordingPolicy.MIC_BUFFER_SECONDS * 1_000L))
-        assertTrue(RecordingPolicy.MAX_LAG_MS > RecordingPolicy.MIC_BUFFER_SECONDS * 1_000L)
+        assertEquals(5_000L, RecordingPolicy.MAX_LAG_MS)
+        assertEquals(RecordingPolicy.MIC_BUFFER_MS + 1_000L, RecordingPolicy.maxLagMs())
         assertEquals(0L, RecordingPolicy.catchUpMs(10_000, 9_000))
-        assertEquals(0L, RecordingPolicy.catchUpMs(10_000, 7_000))
-        assertEquals(7_000L, RecordingPolicy.catchUpMs(20_000, 12_000))
+        assertEquals(0L, RecordingPolicy.catchUpMs(10_000, 6_500)) // a 3.5 s stall: the audio is still in the buffer
+        assertEquals(0L, RecordingPolicy.catchUpMs(10_000, 5_000))
+        // Only what cannot still be buffered is added back.
+        assertEquals(4_000L, RecordingPolicy.catchUpMs(20_000, 12_000))
+        // A phone that granted a 1 s buffer: catch up sooner, leaving 1 s.
+        assertEquals(2_000L, RecordingPolicy.catchUpMs(10_000, 7_000, bufferMs = 1_000))
     }
 
     @Test fun wakeChangeNeverLandsInThePast() {

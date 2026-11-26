@@ -50,6 +50,8 @@ class RecordingServiceTest {
     private var supportedRates = listOf(16000)
     private var overrunAtSec: Double? = null
     private var noiseGate = false
+    private var stallAtSec: Double? = null
+    private var debtMs = 0.0
     /** Samples per read if the phone delivers less than asked (e.g. 4096 at 44.1 kHz). */
     private var readSize: Int? = null
     private var subMs = 0.0
@@ -63,6 +65,12 @@ class RecordingServiceTest {
                 controller.get().onStartCommand(Intent(app, RecordingService::class.java).setAction("com.quietnight.app.STOP"), 0, 99)
             }
             if (t in takenSec) return -3 // AudioRecord.ERROR_INVALID_OPERATION
+            if (stallAtSec != null && t >= stallAtSec!!) {
+                // The recording thread stalled 3.5 s; the audio waited in the buffer and arrives now.
+                stallAtSec = null
+                clockMs.addAndGet(3_500)
+                debtMs = 3_500.0
+            }
             if (overrunAtSec != null && t >= overrunAtSec!!) {
                 // The app fell behind and the microphone's buffer overflowed: 8 s of audio never arrive.
                 overrunAtSec = null
@@ -74,7 +82,10 @@ class RecordingServiceTest {
             if (noiseGate) for (i in 0 until n) if (kotlin.math.abs(chunk[i].toInt()) < 300) chunk[i] = 0
             chunk.copyInto(buf)
             // Advance the clock by exactly the audio delivered, carrying fractions of a millisecond.
-            subMs += n * 1000.0 / sampleRate
+            // Buffered audio after a stall is read without the clock moving.
+            val ms = n * 1000.0 / sampleRate
+            if (debtMs > 0) { debtMs -= ms; return n }
+            subMs += ms
             val whole = subMs.toLong()
             subMs -= whole
             clockMs.addAndGet(whole)
@@ -240,7 +251,8 @@ class RecordingServiceTest {
         awaitNightEnd()
         val s = saved(RecordingService.state.value.finishedId)
         // Without catching up the night would be ~8 s short and the snores ~8 s early.
-        assertTrue("duration ${s.durationSec}", s.durationSec in 297..302)
+        // At most the buffer length (4 s) can go uncounted, never counted twice.
+        assertTrue("duration ${s.durationSec}", s.durationSec in 294..302)
         val b = s.levels.indices.filter { s.levels[it] > 0 }
         assertTrue("buckets $b", b.isNotEmpty() && b.all { it in 19..27 })
         assertTrue(s.gaps.isEmpty())
@@ -329,6 +341,25 @@ class RecordingServiceTest {
         // No catch-up fired: it would have ended a segment early. Exactly two 10-minute files.
         val segs = com.quietnight.app.audio.SegmentIndex.read(app.repository.clipDir(s.id))
         assertEquals(listOf(0L, 600_000L), segs.map { it.startMs }.map { it / 100 * 100 })
+    }
+
+    @Test fun stallShorterThanTheBufferIsNotCountedTwice() {
+        stallAtSec = 100.0
+        com.quietnight.app.audio.NightAudioPref.set(app, true)
+        RecordingEnv.encoder = com.quietnight.app.audio.EncoderFactory { f, _ -> FakeEncoder(f) }
+        RecordingEnv.audioSupported = { true }
+        stops += 300.0
+        try {
+            startNight()
+            awaitNightEnd()
+        } finally {
+            com.quietnight.app.audio.NightAudioPref.set(app, false)
+        }
+        val s = saved(RecordingService.state.value.finishedId)
+        assertTrue("duration ${s.durationSec}", s.durationSec in 299..302)
+        assertTrue(s.gaps.isEmpty())
+        // No catch-up fired, so the audio was not cut into two files.
+        assertEquals(1, com.quietnight.app.audio.SegmentIndex.read(app.repository.clipDir(s.id)).size)
     }
 
     @Test fun lowBatteryStopsAndSavesWithANote() {

@@ -196,26 +196,43 @@ class NightAudioTest {
         assertFalse(sink.isRunning)
     }
 
-    @Test fun closeNowDoesNotWaitForAStuckEncoder() {
+    @Test fun midNightCloseWithAStuckEncoderReturnsAtOnce() {
         val release = java.util.concurrent.CountDownLatch(1)
         val inner = NightAudioWriter(dir, rate, { f, _ ->
-            FakeEncoder(f).let { enc ->
-                object : SegmentEncoder {
-                    override fun write(pcm: ShortArray, n: Int) { release.await(); enc.write(pcm, n) }
-                    override fun finish() = enc.finish()
-                }
+            object : SegmentEncoder {
+                override fun write(pcm: ShortArray, n: Int) { release.await() }
+                override fun finish(): Boolean { f.writeText("x"); return true }
             }
-        }, segmentMs = 60_000)
+        })
         val sink = com.quietnight.app.audio.AsyncAudioSink(inner, capacity = 10)
-        var t = 0L
-        repeat(50) { sink.write(buf, buf.size, t); t += 100 }
-        val started = System.nanoTime()
-        sink.closeNow()
-        assertTrue("closeNow blocked", System.nanoTime() - started < 500_000_000L)
+        sink.write(buf, buf.size, 0)
+        Thread.sleep(50) // the thread is now stuck in the encoder
+        val t0 = System.nanoTime()
+        sink.close(waitMs = 0)
+        assertTrue("took ${(System.nanoTime() - t0) / 1_000_000} ms", System.nanoTime() - t0 < 300_000_000)
         release.countDown()
-        sink.close() // idempotent; the thread finishes on its own
         val deadline = System.currentTimeMillis() + 5_000
-        while (sink.isRunning && System.currentTimeMillis() < deadline) Thread.sleep(10)
+        while (sink.isRunning && System.currentTimeMillis() < deadline) Thread.sleep(5)
+        assertFalse(sink.isRunning)
+    }
+
+    @Test fun gapThatCannotBeQueuedTurnsFullAudioOff() {
+        val release = java.util.concurrent.CountDownLatch(1)
+        val inner = NightAudioWriter(dir, rate, { f, _ ->
+            object : SegmentEncoder {
+                override fun write(pcm: ShortArray, n: Int) { release.await() }
+                override fun finish(): Boolean { f.writeText("x"); return true }
+            }
+        })
+        val sink = com.quietnight.app.audio.AsyncAudioSink(inner, capacity = 3)
+        sink.write(buf, buf.size, 0)
+        Thread.sleep(50)
+        sink.write(buf, buf.size, 100); sink.write(buf, buf.size, 200); sink.write(buf, buf.size, 300)
+        assertFalse(sink.failed) // queue exactly full
+        sink.gap()
+        assertTrue(sink.failed)
+        release.countDown()
+        sink.close()
         assertFalse(sink.isRunning)
     }
 
