@@ -193,13 +193,15 @@ class RecordingService : Service() {
         }
         try {
             // A just-finished microphone check may still be letting go of the input; give it a moment.
-            audio = RecordingEnv.openMic(this) ?: run { RecordingEnv.sleep(600); RecordingEnv.openMic(this) }
+            audio = RecordingEnv.openMic(this, CAPTURE_RATES) ?: run { RecordingEnv.sleep(600); RecordingEnv.openMic(this, CAPTURE_RATES) }
                 ?: error("Could not open the microphone. Another app may be using it.")
+            // The whole night uses the rate the microphone opened at; reopening must match it.
+            val rate = audio.sampleRate
             val keepClips = prefs.saveClips && filesDir.usableSpace >= RecordingPolicy.NO_CLIPS_STORAGE_BYTES
             recorder = NightRecorder(
                 id = id,
                 startMs = startMs,
-                sampleRate = SAMPLE_RATE,
+                sampleRate = rate,
                 thresholdDb = prefs.thresholdDb,
                 delayMs = delayMs,
                 tags = prefs.selectedTags.sorted(),
@@ -216,7 +218,7 @@ class RecordingService : Service() {
             var screenOn = true
             var lastUi = Long.MIN_VALUE / 2
 
-            val buf = ShortArray(SAMPLE_RATE / 10)
+            val buf = ShortArray(rate / 10)
             var lastSave = RecordingEnv.elapsedMs()
             var lastCheck = Long.MIN_VALUE / 2
             var silenced = false
@@ -250,7 +252,7 @@ class RecordingService : Service() {
                     _state.value = _state.value.copy(micPaused = true)
                     notifyText("Microphone in use elsewhere. Will carry on when it is free.")
                     sleepUnlessStopped(RecordingPolicy.reopenDelayMs(++failures))
-                    if (!stopRequested) audio = RecordingEnv.openMic(this)
+                    if (!stopRequested) audio = RecordingEnv.openMic(this, listOf(rate))
                     continue
                 }
                 if (n == 0) { RecordingEnv.sleep(20); continue }
@@ -262,11 +264,11 @@ class RecordingService : Service() {
                     failures = 0
                     if (gaps.inGap) {
                         gaps.end(offsetNow())
-                        val behind = offsetNow() - n * 1000L / SAMPLE_RATE - accountedMs
+                        val behind = offsetNow() - n * 1000L / rate - accountedMs
                         if (behind > 0) { recorder.skip(behind); accountedMs += behind }
                     }
                     recorder.feed(buf, n)
-                    accountedMs += n * 1000L / SAMPLE_RATE
+                    accountedMs += n * 1000L / rate
                 }
                 val paused = gaps.inGap
                 // Nobody sees the live meter with the screen off or dimmed; update far less often then.

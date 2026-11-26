@@ -32,6 +32,6 @@ object TestAudio {
     private fun jitter(k: Long, salt: Int): Double = Random(k * 31 + salt).nextDouble() * 2 - 1
 
     /** [n] samples starting at [fromSec] seconds. */
-    fun chunk(fromSec: Double, n: Int, rnd: Random, snoring: (Double) -> Boolean) =
-        ShortArray(n) { sample(fromSec + it.toDouble() / RATE, rnd, snoring) }
+    fun chunk(fromSec: Double, n: Int, rnd: Random, snoring: (Double) -> Boolean, rate: Int = RATE) =
+        ShortArray(n) { sample(fromSec + it.toDouble() / rate, rnd, snoring) }
 }

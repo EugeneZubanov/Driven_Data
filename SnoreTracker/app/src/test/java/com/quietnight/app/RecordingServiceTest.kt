@@ -46,7 +46,11 @@ class RecordingServiceTest {
 
     private fun now() = clockMs.get() / 1000.0
 
-    private inner class FakeMic : MicInput {
+    /** Capture rates the simulated phone supports, and every rate list the service asked for. */
+    private var supportedRates = listOf(16000)
+    private val requested = java.util.Collections.synchronizedList(ArrayList<List<Int>>())
+
+    private inner class FakeMic(override val sampleRate: Int) : MicInput {
         override fun read(buf: ShortArray, size: Int): Int {
             val t = now()
             if (stops.isNotEmpty() && t >= stops.first()) {
@@ -54,9 +58,9 @@ class RecordingServiceTest {
                 controller.get().onStartCommand(Intent(app, RecordingService::class.java).setAction("com.quietnight.app.STOP"), 0, 99)
             }
             if (t in takenSec) return -3 // AudioRecord.ERROR_INVALID_OPERATION
-            val chunk = TestAudio.chunk(t, size, rnd, snoring)
+            val chunk = TestAudio.chunk(t, size, rnd, snoring, sampleRate)
             chunk.copyInto(buf)
-            clockMs.addAndGet(size * 1000L / TestAudio.RATE)
+            clockMs.addAndGet(size * 1000L / sampleRate)
             return size
         }
         override fun silenced() = false
@@ -66,7 +70,10 @@ class RecordingServiceTest {
     @Before fun setUp() {
         shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         app.settings.update { it.copy(delayMin = 0, saveClips = true) }
-        RecordingEnv.openMic = { if (now() in takenSec) null else FakeMic() }
+        RecordingEnv.openMic = { _, rates ->
+            requested += rates
+            if (now() in takenSec) null else rates.firstOrNull { it in supportedRates }?.let { FakeMic(it) }
+        }
         RecordingEnv.elapsedMs = { clockMs.get() }
         RecordingEnv.wallMs = { wallBase + clockMs.get() }
         // Simulated time flies, but slowly enough for the test thread to step in.
@@ -123,6 +130,36 @@ class RecordingServiceTest {
         assertNull("marker cleared", marker())
         assertFalse(RecordingService.isRecording)
         assertTrue(shadowOf(controller.get()).isStoppedBySelf)
+    }
+
+    @Test fun phoneThatOnlyRecordsAt44kHzStillGetsARightNight() {
+        supportedRates = listOf(44100)
+        snoring = { t -> t in 60.0..120.0 || t in 360.0..420.0 }
+        takenSec = 180.0..300.0
+        stops += 480.0
+        startNight()
+        awaitNightEnd()
+        val s = saved(RecordingService.state.value.finishedId)
+        assertTrue("duration ${s.durationSec}", s.durationSec in 478..485)
+        val g = s.gaps.single()
+        assertTrue("gap $g", g.fromSec in 179..181 && g.toSec in 300..340)
+        val b = s.levels.indices.filter { s.levels[it] > 0 }
+        assertTrue("buckets $b", b.any { it in 6..12 } && b.any { it in 36..42 })
+        assertTrue("buckets $b", b.all { it in 5..13 || it in 35..43 })
+        // First open walks the list; reopening after the call asks only for the night's own rate.
+        assertEquals(listOf(16000, 48000, 44100), requested.first())
+        assertTrue(requested.drop(1).isNotEmpty() && requested.drop(1).all { it == listOf(44100) })
+    }
+
+    @Test fun phoneAt48kHzRecordsTheRightLength() {
+        supportedRates = listOf(48000, 44100)
+        snoring = { t -> t in 30.0..90.0 }
+        stops += 120.0
+        startNight()
+        awaitNightEnd()
+        val s = saved(RecordingService.state.value.finishedId)
+        assertTrue("duration ${s.durationSec}", s.durationSec in 119..123)
+        assertTrue(s.levels.indices.filter { s.levels[it] > 0 }.all { it in 2..10 })
     }
 
     @Test fun lowBatteryStopsAndSavesWithANote() {
