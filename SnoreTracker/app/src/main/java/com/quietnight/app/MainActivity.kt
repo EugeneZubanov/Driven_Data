@@ -244,6 +244,7 @@ private fun AppRoot(app: QuietNightApp) {
                     storageBytes = storage.bytes,
                     onClipCleanup = storage.onCleanupDays,
                     storageMessage = storage.message,
+                    detection = com.quietnight.app.ui.rememberDetectionCheck(app, prefs.sensitivity),
                 )
                 }
             }

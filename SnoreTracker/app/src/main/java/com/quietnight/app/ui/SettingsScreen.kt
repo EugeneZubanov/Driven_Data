@@ -63,6 +63,7 @@ fun SettingsScreen(
     storageBytes: Long? = null,
     onClipCleanup: ((Int) -> Unit)? = null,
     storageMessage: String? = null,
+    detection: DetectionCheckState? = null,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
@@ -116,6 +117,11 @@ fun SettingsScreen(
         if (onBackup != null || onRestore != null || onExportCsv != null) {
             Spacer(Modifier.height(12.dp))
             DataCard(hasSessions, onBackup, onRestore, onExportCsv, dataMessage, dataBusy, onSaveReport, onShareReport)
+        }
+
+        if (detection != null) {
+            Spacer(Modifier.height(12.dp))
+            DetectionCheckCard(detection, prefs.sensitivity) { level -> onPrefs { it.copy(sensitivity = level) } }
         }
 
         if (onClipCleanup != null) {
