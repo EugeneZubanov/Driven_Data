@@ -83,7 +83,7 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
  */
 @Composable
 fun ScoreDial(session: Session, size: Dp, modifier: Modifier = Modifier) {
-    val total = (session.levels.size * session.bucketSec).coerceAtLeast(1).toFloat()
+    val total = session.listenedSec.coerceAtLeast(1).toFloat()
     val shares = FloatArray(3) { session.secondsByLevel[it + 1] / total }
     ScoreDial(session.score, shares, size, modifier)
 }

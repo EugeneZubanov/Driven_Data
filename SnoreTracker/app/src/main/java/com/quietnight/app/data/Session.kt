@@ -49,29 +49,49 @@ class Session(
 ) {
     val durationSec: Int get() = ((endMs - startMs) / 1000).toInt()
 
-    /** Seconds spent at each level, indexed by [Level]. */
+    /** True for buckets whose middle falls in a [gaps] stretch (no audio was heard). */
+    val gapMask: BooleanArray by lazy {
+        val mask = BooleanArray(levels.size)
+        for (g in gaps) {
+            val from = ((g.fromSec - bucketSec / 2f) / bucketSec).let { kotlin.math.ceil(it).toInt() }.coerceAtLeast(0)
+            for (b in from until levels.size) {
+                val mid = b * bucketSec + bucketSec / 2f
+                if (mid >= g.toSec) break
+                if (mid >= g.fromSec) mask[b] = true
+            }
+        }
+        mask
+    }
+
+    /** Seconds of the timeline with no audio. */
+    val gapSec: Int by lazy { gapMask.count { it } * bucketSec }
+
+    /** Seconds of the timeline actually listened to; the score is a share of this. */
+    val listenedSec: Int get() = levels.size * bucketSec - gapSec
+
+    /** Seconds spent at each level, indexed by [Level]. Gaps are not counted as quiet. */
     val secondsByLevel: IntArray by lazy {
         val out = IntArray(4)
-        for (l in levels) out[l.toInt().coerceIn(0, 3)] += bucketSec
+        for (i in levels.indices) if (!gapMask[i]) out[levels[i].toInt().coerceIn(0, 3)] += bucketSec
         out
     }
 
     val snoringSec: Int get() = secondsByLevel[1] + secondsByLevel[2] + secondsByLevel[3]
 
     val snoringFraction: Float
-        get() = if (levels.isEmpty()) 0f else snoringSec.toFloat() / (levels.size * bucketSec)
+        get() = if (listenedSec <= 0) 0f else snoringSec.toFloat() / listenedSec
 
     /** Score contribution of each snoring level; they add up to [score]. */
     val scoreParts: FloatArray by lazy {
-        val total = (levels.size * bucketSec).toFloat()
-        if (total == 0f) FloatArray(3) else {
+        val total = listenedSec.toFloat()
+        if (total <= 0f) FloatArray(3) else {
             val raw = FloatArray(3) { 100f * WEIGHTS[it] * secondsByLevel[it + 1] / total }
             val sum = raw.sum()
             if (sum > 100f) FloatArray(3) { raw[it] * 100f / sum } else raw
         }
     }
 
-    /** 0–100. Share of the night spent snoring, with louder snoring counting for more. */
+    /** 0–100. Share of the listened time spent snoring, with louder snoring counting for more. */
     val score: Int get() = scoreParts.sum().roundToInt()
 
     fun toJson(): JSONObject = JSONObject().apply {
