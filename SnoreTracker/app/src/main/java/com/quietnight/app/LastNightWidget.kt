@@ -32,7 +32,9 @@ data class WidgetContent(val score: String, val title: String, val detail: Strin
 class LastNightWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         val app = context.applicationContext as? QuietNightApp ?: return
-        render(context, manager, ids, app.repository.sessions.value)
+        // Until nights have loaded, keep what the widget already shows; the app's collector refreshes it after.
+        if (!app.repository.loaded.value) return
+        runCatching { render(context, manager, ids, app.repository.sessions.value) }
     }
 
     companion object {
