@@ -151,6 +151,28 @@ class NightAudioTest {
         assertEquals(20_000, com.quietnight.app.audio.AacSupport.pickBitrate(24_000, 8_000, 20_000))
     }
 
+    @Test fun indexIsOrderedAndNeverOverlapsAcrossRolloverGapsAndDrops() {
+        var opened = 0
+        val w = NightAudioWriter(dir, 44100, { f, _ ->
+            opened++
+            object : SegmentEncoder {
+                val drop = opened == 3 // the third file turns out unplayable
+                override fun write(pcm: ShortArray, n: Int) {}
+                override fun finish(): Boolean { f.writeText("x"); return !drop }
+            }
+        }, segmentMs = 60_000)
+        val chunk = ShortArray(4410)
+        fun feed(from: Long, to: Long) { var t = from; while (t < to) { w.write(chunk, chunk.size, t); t += 100 } }
+        feed(0, 130_000)          // two full segments and the start of a third
+        w.gap()                   // the third ends early (and is dropped)
+        feed(200_000, 230_000)    // after a gap
+        w.close()
+        val s = SegmentIndex.read(dir)
+        assertEquals(listOf(0L, 60_000L, 200_000L), s.map { it.startMs })
+        for (i in 1 until s.size) assertTrue(s[i].startMs >= s[i - 1].startMs + s[i - 1].durationMs)
+        assertTrue(s.all { File(dir, it.file).exists() })
+    }
+
     @Test fun subSecondSegmentIsDropped() {
         val w = NightAudioWriter(dir, rate, { f, _ -> FakeEncoder(f) })
         w.feed(0, 500)

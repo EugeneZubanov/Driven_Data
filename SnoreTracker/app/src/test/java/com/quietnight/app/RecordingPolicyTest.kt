@@ -188,6 +188,15 @@ class RecordingPolicyTest {
         assertEquals(7_000L, RecordingPolicy.catchUpMs(20_000, 12_000))
     }
 
+    @Test fun wakeChangeNeverLandsInThePast() {
+        val zone = java.time.ZoneId.of("Europe/London")
+        fun ms(s: String) = java.time.ZonedDateTime.of(java.time.LocalDateTime.parse(s), zone).toInstant().toEpochMilli()
+        // At 03:00 the alarm is moved to 02:30: that means tomorrow, not "already due".
+        assertEquals(ms("2026-11-28T02:30"), RecordingPolicy.wakeAtAfterChange(true, 2, 30, ms("2026-11-27T03:00"), zone))
+        assertEquals(ms("2026-11-27T06:15"), RecordingPolicy.wakeAtAfterChange(true, 6, 15, ms("2026-11-27T03:00"), zone))
+        assertEquals(0L, RecordingPolicy.wakeAtAfterChange(false, 6, 15, ms("2026-11-27T03:00"), zone))
+    }
+
     @Test fun serviceLifecycle() {
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = false))
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = true))

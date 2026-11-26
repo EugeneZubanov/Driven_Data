@@ -166,7 +166,8 @@ class RecordingService : Service() {
         val id = "s$startMs"
         val testRun = testRunMs > 0
         val delayMs = if (testRun) 0L else prefs.delayMin * 60_000L
-        val wakeAtMs = if (testRun) 0L else WakeAlarm.wakeAtFor(this, startMs)
+        var wakeSetting = WakeAlarm.setting(this).value
+        var wakeAtMs = if (testRun) 0L else WakeAlarm.wakeAtFor(this, startMs)
         val is24 = DateFormat.is24HourFormat(this)
         var audio: MicInput? = null
         var recorder: NightRecorder? = null
@@ -241,6 +242,13 @@ class RecordingService : Service() {
                     lastCheck = now
                     silenced = audio?.silenced() == true
                     screenOn = runCatching { power.isInteractive }.getOrDefault(true)
+                    // The wake-up time can be changed or turned off during the night.
+                    val latestWake = WakeAlarm.setting(this).value
+                    if (!testRun && latestWake != wakeSetting) {
+                        wakeSetting = latestWake
+                        wakeAtMs = RecordingPolicy.wakeAtAfterChange(latestWake?.enabled == true, latestWake?.hour ?: 0, latestWake?.minute ?: 0, RecordingEnv.wallMs())
+                        _state.value = _state.value.copy(wakeAtMs = wakeAtMs)
+                    }
                     val (pct, charging) = RecordingEnv.battery(this)
                     stopReason = RecordingPolicy.safetyStop(offsetNow(), pct, charging)
                         ?: RecordingPolicy.plannedStop(offsetNow(), RecordingEnv.wallMs(), testRunMs, wakeAtMs)

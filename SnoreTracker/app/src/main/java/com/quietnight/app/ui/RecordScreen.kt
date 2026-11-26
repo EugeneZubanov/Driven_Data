@@ -639,7 +639,7 @@ private fun TonightCard(
             Text(label, Modifier.weight(1f), fontWeight = FontWeight.Medium)
             Text(
                 value, color = Palette.Muted, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.End,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 150.dp).padding(start = 12.dp),
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 128.dp).padding(start = 12.dp),
             )
             Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = Palette.Muted, modifier = Modifier.padding(start = 4.dp))
         }
@@ -669,7 +669,7 @@ private fun TonightCard(
             SettingRow("wake", "Wake-up alarm", if (wake.enabled) RecordingPolicy.timeOfDay(wake.hour, wake.minute, LocalIs24Hour.current) else "Off") {
                 WakeCard(wake, onWake, framed = false)
             }
-            SettingRow("tags", "Factors and remedies", tagSummary(prefs.selectedTags)) {
+            SettingRow("tags", "Factors & remedies", tagSummary(prefs.selectedTags)) {
                 for ((kind, title, hint, builtIn) in listOf(
                     TagGroup("f", "Factors", "Things that might make snoring worse.", Tags.factors),
                     TagGroup("r", "Remedies", "Things you are trying to snore less.", Tags.remedies),

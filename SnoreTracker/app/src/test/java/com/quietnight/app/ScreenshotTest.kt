@@ -199,8 +199,8 @@ class ScreenshotTest {
                 nowMs = { now }, wake = WakeSetting(enabled = true, hour = 6, minute = 45),
             )
         }
-        compose.onNodeWithText("Factors and remedies").performScrollTo().performClick()
-        compose.onNodeWithText("Factors and remedies").performScrollTo()
+        compose.onNodeWithText("Factors & remedies").performScrollTo().performClick()
+        compose.onNodeWithText("Factors & remedies").performScrollTo()
         compose.onRoot().captureRoboImage("build/shots/record-tonight.png")
     }
 
@@ -232,6 +232,9 @@ class ScreenshotTest {
         compose.onRoot().captureRoboImage("build/shots/record-360-font130.png")
         compose.onNodeWithText("Tonight").performScrollTo()
         compose.onRoot().captureRoboImage("build/shots/record-360-font130-tonight.png")
+        compose.onNodeWithText("Wake-up alarm").performScrollTo().performClick()
+        compose.onNodeWithText("Microphone check").performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/record-360-font130-rows.png")
     }
 
     @Test fun recordFullAudio() {

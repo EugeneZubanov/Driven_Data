@@ -232,6 +232,48 @@ class RecordingServiceTest {
         assertTrue(s.gaps.isEmpty())
     }
 
+    private fun wakeAt(secondsAfterStart: Long): com.quietnight.app.audio.WakeSetting {
+        val t = java.time.Instant.ofEpochMilli(wallBase + secondsAfterStart * 1000).atZone(java.time.ZoneId.systemDefault())
+        return com.quietnight.app.audio.WakeSetting(enabled = true, hour = t.hour, minute = t.minute)
+    }
+
+    @Test fun wakeTimeMovedEarlierDuringTheNightApplies() {
+        val alarm = com.quietnight.app.audio.WakeAlarm
+        alarm.update(app, wakeAt(3600))
+        stops += 3000.0 // never reached
+        try {
+            startNight()
+            while (now() < 300) Thread.sleep(2)
+            alarm.update(app, wakeAt(600))
+            awaitNightEnd()
+        } finally {
+            alarm.update(app, com.quietnight.app.audio.WakeSetting())
+        }
+        val state = RecordingService.state.value
+        val s = saved(state.finishedId)
+        assertTrue("duration ${s.durationSec}", s.durationSec in 600..603)
+        assertTrue(state.notice!!.contains("wake-up time"))
+    }
+
+    @Test fun wakeAlarmTurnedOffDuringTheNightLetsItRunOn() {
+        val alarm = com.quietnight.app.audio.WakeAlarm
+        alarm.update(app, wakeAt(600))
+        stops += 900.0
+        try {
+            startNight()
+            while (now() < 300) Thread.sleep(2)
+            alarm.update(app, com.quietnight.app.audio.WakeSetting(enabled = false, hour = 7, minute = 0))
+            while (RecordingService.state.value.wakeAtMs != 0L && now() < 600) Thread.sleep(2)
+            assertEquals(0L, RecordingService.state.value.wakeAtMs)
+            awaitNightEnd()
+        } finally {
+            alarm.update(app, com.quietnight.app.audio.WakeSetting())
+        }
+        val s = saved(RecordingService.state.value.finishedId)
+        assertTrue("duration ${s.durationSec}", s.durationSec in 899..903)
+        assertNull(RecordingService.state.value.notice)
+    }
+
     @Test fun lowBatteryStopsAndSavesWithANote() {
         battery = 50 to false
         startNight()
