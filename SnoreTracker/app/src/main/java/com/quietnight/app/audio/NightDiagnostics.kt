@@ -5,7 +5,7 @@ import java.io.File
 
 /**
  * What the detector saw during one night, for tuning against real recordings. Saved next to the
- * night's clips as [FILE_NAME]; not part of the Session and not exported in backups.
+ * night's clips as [FILE_NAME]; not part of the Session, but included in the app's own backups.
  */
 data class NightDiagnostics(
     val captureRate: Int,
