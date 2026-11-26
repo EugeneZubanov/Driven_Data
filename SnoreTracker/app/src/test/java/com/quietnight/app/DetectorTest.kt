@@ -21,21 +21,36 @@ import kotlin.random.Random
 class DetectorTest {
     private val rate = 16000
 
-    /** Room noise plus optional bursts: [burstHz] tone with harmonics and roughness, [burstSec] long every [everySec]. */
+    /**
+     * Room noise plus optional bursts: [burstHz] tone with harmonics and roughness, about [burstSec]
+     * long every [everySec]. Breathing is never clockwork, so each burst gets ±8 % interval, ±10 %
+     * length and ±1.5 dB level jitter (deterministic); perfectly regular bursts look like a machine.
+     */
     private fun audio(
         seconds: Int, noiseAmp: Double = 60.0, burstAmp: Double = 0.0, burstHz: Double = 110.0,
         burstSec: Double = 1.2, everySec: Double = 4.0, fromSec: Double = 5.0, seed: Int = 1,
     ): ShortArray {
         val rnd = Random(seed)
+        val jr = Random(seed + 1000)
+        // (start, length, gain) of each burst
+        val bursts = ArrayList<DoubleArray>()
+        var bt = fromSec
+        while (bt < seconds) {
+            bursts += doubleArrayOf(bt, burstSec * (0.9 + 0.2 * jr.nextDouble()), Math.pow(10.0, (jr.nextDouble() * 3 - 1.5) / 20))
+            bt += everySec * (0.92 + 0.16 * jr.nextDouble())
+        }
+        var k = 0
         return ShortArray(seconds * rate) { i ->
             val t = i.toDouble() / rate
             var v = (rnd.nextDouble() * 2 - 1) * noiseAmp
-            if (burstAmp > 0 && t >= fromSec) {
-                val phase = (t - fromSec) % everySec
-                if (phase < burstSec) {
-                    val env = sin(PI * phase / burstSec)
+            if (burstAmp > 0) {
+                while (k + 1 < bursts.size && t >= bursts[k + 1][0]) k++
+                val b = bursts.getOrNull(k)
+                if (b != null && t >= b[0] && t - b[0] < b[1]) {
+                    val phase = t - b[0]
+                    val env = sin(PI * phase / b[1])
                     val rough = 0.6 + 0.4 * sin(2 * PI * 28 * t)
-                    v += burstAmp * env * rough * (sin(2 * PI * burstHz * t) + 0.5 * sin(2 * PI * 2 * burstHz * t) + 0.25 * sin(2 * PI * 3 * burstHz * t))
+                    v += burstAmp * b[2] * env * rough * (sin(2 * PI * burstHz * t) + 0.5 * sin(2 * PI * 2 * burstHz * t) + 0.25 * sin(2 * PI * 3 * burstHz * t))
                 }
             }
             v.toInt().coerceIn(-32768, 32767).toShort()

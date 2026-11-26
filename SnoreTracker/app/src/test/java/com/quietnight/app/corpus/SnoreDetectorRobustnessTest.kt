@@ -89,3 +89,13 @@ class SnoreDetectorRobustnessTest {
         assertEquals(a, levels(1234))
     }
 }
+
+class MachineRhythmTest {
+    @Test fun clockworkBurstsAreAMachineNotSnoring() {
+        val events = ArrayList<SnoreEvent>()
+        val d = SnoreDetector(16000, 8f) { events += it }
+        val pcm = Scene(60.0, 50).roomNoise().dualToneRinger(5.0, 15, 1500.0).pcm()
+        d.feed(pcm, 0, pcm.size)
+        assertEquals(0, events.size)
+    }
+}

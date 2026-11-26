@@ -167,8 +167,11 @@ class Scene(val seconds: Double, seed: Int, val rate: Int = 16000) {
 
     // ---------------------------------------------------------------- distractors
 
-    /** Speech-like syllable trains: voiced pulses at [f0] through vowel formants, some fricatives. */
-    fun speech(fromSec: Double, toSec: Double, rms: Double, f0: Double = 120.0, pauseMin: Double = 0.3, pauseMax: Double = 2.5) = apply {
+    /**
+     * Speech-like syllable trains: voiced pulses at [f0] through vowel formants, some fricatives.
+     * Creaky voice / vocal fry: [f0] of 30–70 Hz with [pulseJitter] (fraction of a period).
+     */
+    fun speech(fromSec: Double, toSec: Double, rms: Double, f0: Double = 120.0, pauseMin: Double = 0.3, pauseMax: Double = 2.5, pulseJitter: Double = 0.0) = apply {
         val vowels = arrayOf(300.0 to 2300.0, 400.0 to 2000.0, 600.0 to 1700.0, 700.0 to 1200.0, 500.0 to 900.0, 350.0 to 800.0)
         var t = fromSec
         while (t < toSec) {
@@ -190,7 +193,7 @@ class Scene(val seconds: Double, seed: Int, val rate: Int = 16000) {
                 val decl = phraseF0 * (1 - 0.15 * k / syllables)
                 for (i in s.indices) {
                     ph += decl * (1 + 0.05 * sin(2 * PI * 3 * i / rate)) / rate
-                    val pulse = if (ph >= 1) { ph -= 1; 30.0 } else 0.0
+                    val pulse = if (ph >= 1) { ph = -r(-pulseJitter, pulseJitter); 30.0 } else 0.0
                     val x = tilt.lp(pulse + gauss() * 0.05)
                     s[i] = r1.p(x) + 0.5 * r2.p(x) + 0.25 * r3.p(x)
                 }

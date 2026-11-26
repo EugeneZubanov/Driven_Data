@@ -15,10 +15,17 @@ import java.io.File
 class DetectorCorpusTest {
     private val rate = 16000
 
-    /** [gated]: counted by the regression gates; false for known weak spots that are only reported. */
-    class Scenario(val name: String, val snoring: Boolean, val gain: Double = 1.0, val gated: Boolean = true, val build: () -> Scene)
+    /**
+     * [gated]: counted by the regression gates; false for known weak spots that are only reported.
+     * [maxFalseSec]: allowed false-alarm time for a distractor; above 0 only for partial weak spots.
+     */
+    class Scenario(
+        val name: String, val snoring: Boolean, val gain: Double = 1.0, val gated: Boolean = true,
+        val maxFalseSec: Double = 0.0, val build: () -> Scene,
+    )
 
-    data class Score(val truth: Int, val hits: Int, val events: Int, val falseSec: Double, val levels: IntArray) {
+    /** [levels]: by dbAboveFloor (night baseline); [localLevels]: by the floor at that moment, as before. */
+    data class Score(val truth: Int, val hits: Int, val events: Int, val falseSec: Double, val levels: IntArray, val localLevels: IntArray) {
         val hitRate get() = if (truth == 0) Double.NaN else hits.toDouble() / truth
     }
 
@@ -38,6 +45,7 @@ class DetectorCorpusTest {
         Scenario("snoring over fan", true) { Scene(180.0, 20).roomNoise().fan(400.0).snoring(5.0, 180.0, 1600.0) },
         Scenario("snoring over rain", true) { Scene(180.0, 21).roomNoise().rain(300.0).snoring(5.0, 180.0, 1400.0) },
         Scenario("fan turns on mid-snoring", true) { Scene(240.0, 22).roomNoise().fan(400.0, 100.0).snoring(5.0, 240.0, 1600.0) },
+        Scenario("two snorers interleaved", true) { Scene(240.0, 27).roomNoise().snoring(5.0, 240.0, 450.0, 4.0).snoring(7.0, 240.0, 250.0, 5.3, pulseHz = 28.0) },
         Scenario("snoring + partner talking", true) { Scene(240.0, 23).roomNoise().snoring(5.0, 240.0, 500.0).speech(60.0, 150.0, 400.0, 200.0, 1.0, 6.0) },
     )
 
@@ -57,7 +65,9 @@ class DetectorCorpusTest {
         Scenario("phone notifications", false) { Scene(240.0, 43).roomNoise().notifications(0.0, 240.0, 1200.0) },
         Scenario("rain", false) { Scene(180.0, 44).roomNoise().rain(400.0) },
         Scenario("heavy breathing, no snore", false) { Scene(180.0, 45).roomNoise().breathing(0.0, 180.0, 400.0) },
-        Scenario("dual-tone phone ringer x8", false, gated = false) { Scene(60.0, 46).roomNoise().dualToneRinger(10.0, 8, 1500.0) },
+        // Weak spot: creaky talking is rough and low like a snore; 4 minutes of it still gives ~6 s.
+        Scenario("creaky voice (vocal fry) *", false, maxFalseSec = 10.0) { Scene(240.0, 47).roomNoise().speech(3.0, 240.0, 500.0, 45.0, pulseJitter = 0.2) },
+        Scenario("dual-tone phone ringer x8", false) { Scene(60.0, 46).roomNoise().dualToneRinger(10.0, 8, 1500.0) },
     )
 
     private fun run(pcm: ShortArray, threshold: Float, legacy: Boolean): List<SnoreEvent> {
@@ -82,6 +92,7 @@ class DetectorCorpusTest {
         val hit = BooleanArray(scene.snores.size)
         var falseMs = 0L
         val levels = IntArray(4)
+        val localLevels = IntArray(4)
         for (e in events) {
             var matched = false
             scene.snores.forEachIndexed { i, s ->
@@ -89,8 +100,9 @@ class DetectorCorpusTest {
             }
             if (!matched) falseMs += e.durationMs
             levels[Level.fromDb(e.dbAboveFloor)]++
+            localLevels[Level.fromDb(e.dbAboveLocalFloor)]++
         }
-        return Score(scene.snores.size, hit.count { it }, events.size, falseMs / 1000.0, levels)
+        return Score(scene.snores.size, hit.count { it }, events.size, falseMs / 1000.0, levels, localLevels)
     }
 
     private val thresholds = floatArrayOf(11f, 8f, 5.5f)
@@ -109,15 +121,17 @@ class DetectorCorpusTest {
     @Test fun corpusTable() {
         val out = StringBuilder()
         out.appendLine("Snore detector on the synthetic corpus (threshold 8 dB = normal sensitivity)")
-        out.appendLine("%-30s | %-23s | %-23s | %s".format("scenario", "new: hits  rate  false", "old: hits  rate  false", "new levels M/L/H"))
+        out.appendLine("%-30s | %-23s | %-23s | %-13s | %s".format("scenario", "new: hits  rate  false", "old: hits  rate  false", "M/L/H local", "M/L/H baseline"))
         val all = (snoreScenarios + distractors).associate { it.name to evaluate(it) }
         val results = all.mapValues { it.value[1] }
         for (s in snoreScenarios + distractors) {
             val new = all.getValue(s.name)[1]
             val old = all.getValue(s.name)[3]
-            out.appendLine("%-30s | %-23s | %-23s | %d/%d/%d".format(s.name + if (s.gated) "" else " *", fmt(new), fmt(old), new.levels[1], new.levels[2], new.levels[3]))
+            val loc = new.localLevels
+            out.appendLine("%-30s | %-23s | %-23s | %-13s | %d/%d/%d".format(s.name + if (s.gated) "" else " *", fmt(new), fmt(old),
+                "${loc[1]}/${loc[2]}/${loc[3]}", new.levels[1], new.levels[2], new.levels[3]))
         }
-        out.appendLine("* known weak spot, reported but not gated")
+        out.appendLine("* known weak spot: not gated, or gated at a non-zero false-alarm ceiling")
         out.appendLine()
         out.appendLine("Sensitivity sweep (new detector): snore hit rate / distractor false-alarm seconds")
         for ((ti, label) in listOf("low 11 dB", "normal 8 dB", "high 5.5 dB").withIndex()) {
@@ -143,7 +157,7 @@ class DetectorCorpusTest {
         }
         for (s in distractors.filter { it.gated }) {
             val sc = results.getValue(s.name)
-            if (sc.falseSec > 0.0) problems += "${s.name}: ${sc.falseSec}s false alarms"
+            if (sc.falseSec > s.maxFalseSec) problems += "${s.name}: ${sc.falseSec}s false alarms"
         }
         assertTrue(problems.joinToString("\n"), problems.isEmpty())
     }
