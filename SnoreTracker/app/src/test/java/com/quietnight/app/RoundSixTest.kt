@@ -65,6 +65,13 @@ class RoundSixTest {
         assertEquals("Low", DetectionCheck.levelName(-3))
     }
 
+    @Test fun reportNeedsARealCountingNightInTheWindow() {
+        assertFalse(com.quietnight.app.data.ReportData.available(listOf(night("d", demo = true)), now))
+        assertFalse(com.quietnight.app.data.ReportData.available(listOf(night("t", note = Session.TEST_RUN_NOTE), night("s", minutes = 30)), now))
+        assertFalse(com.quietnight.app.data.ReportData.available(listOf(night("old", endMs = now - 40 * 86_400_000L)), now))
+        assertTrue(com.quietnight.app.data.ReportData.available(listOf(night("d", demo = true), night("real")), now))
+    }
+
     @Test fun restoreSpaceDecision() {
         val mb = 1024L * 1024
         assertNull(RestoreSpace.problem(null, 0, 0)) // size unknown: try anyway
