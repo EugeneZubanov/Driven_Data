@@ -73,6 +73,11 @@ private fun AppRoot(app: QuietNightApp) {
     val weight by weightStore.log.collectAsStateWithLifecycle()
     var detailId by rememberSaveable { mutableStateOf<String?>(null) }
     var deletedNotice by remember { mutableStateOf<com.quietnight.app.data.Session?>(null) }
+    val loaded by app.repository.loaded.collectAsStateWithLifecycle()
+    var freshId by rememberSaveable { mutableStateOf<String?>(null) } // just recorded: show the morning summary
+    val clipTotal by androidx.compose.runtime.produceState<Long?>(null, sessions) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.repository.clipBytes() }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         // start() explains on the Record tab if the microphone was refused.
@@ -91,6 +96,7 @@ private fun AppRoot(app: QuietNightApp) {
         rec.finishedId?.let {
             tab = 1
             detailId = it
+            freshId = it
             RecordingService.clearFinished()
         }
     }
@@ -151,6 +157,10 @@ private fun AppRoot(app: QuietNightApp) {
                         history = sessions,
                         onSave = app.repository::save,
                         customTags = prefs.customTags,
+                        justFinished = detail.id == freshId,
+                        onDismissSummary = { freshId = null },
+                        clipBytes = remember(detail) { app.repository.clipBytes(detail.id) },
+                        onDeleteClips = { app.repository.deleteClips(detail.id) },
                     )
                 }
                 tab == 0 -> RecordTab(
@@ -167,6 +177,8 @@ private fun AppRoot(app: QuietNightApp) {
                     onUndoDelete = { app.repository.restore(it) },
                     deletedNotice = deletedNotice,
                     onDeletedNoticeShown = { deletedNotice = null },
+                    loading = !loaded,
+                    clipBytes = clipTotal,
                 ) { detailId = it }
                 tab == 2 -> TrendsScreen(sessions, onOpenNight = { tab = 1; detailId = it }, weight = weight, onWeight = weightStore::update)
                 else -> {

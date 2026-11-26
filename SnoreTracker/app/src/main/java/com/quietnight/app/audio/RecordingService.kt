@@ -456,6 +456,7 @@ class RecordingService : Service() {
         fun recoverInterrupted(app: QuietNightApp) {
             val sp = app.getSharedPreferences(MARK_PREFS, Context.MODE_PRIVATE)
             val markerId = sp.getString(MARK_ID, null)
+            if (markerId != null) app.repository.ensureLoaded() // need the saved nights to decide
             // Read the file itself: the repository may still be loading its list in the background.
             val saved = markerId?.let { id ->
                 app.repository.sessions.value.firstOrNull { it.id == id } ?: readSavedNight(app, id)
