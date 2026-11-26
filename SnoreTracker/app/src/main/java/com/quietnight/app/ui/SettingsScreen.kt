@@ -199,7 +199,8 @@ private fun DataCard(
                     "or another phone. Restoring adds missing nights and keeps the ones already here. " +
                     "The spreadsheet file has one row per night; the report is a printable summary of the last 30 nights. " +
                     "Sample nights are left out. Backups include clips and any whole-night audio, so they can be large " +
-                    "(about 7 MB per hour of whole-night audio).",
+                    "(about 7 MB per hour of whole-night audio). Nothing is sent anywhere, and Android's own cloud backup " +
+                    "and phone-to-phone transfer are off for this app, so this is the way to keep a copy.",
                 color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
