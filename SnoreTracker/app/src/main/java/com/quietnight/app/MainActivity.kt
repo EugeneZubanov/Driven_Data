@@ -48,6 +48,8 @@ import com.quietnight.app.ui.TrendsScreen
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Keep any night that was cut short because the app was closed while recording.
+        RecordingService.recoverInterrupted(application as QuietNightApp)
         setContent { QuietNightTheme { AppRoot(application as QuietNightApp) } }
     }
 }
