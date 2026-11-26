@@ -135,6 +135,21 @@ class ResultsLogicTest {
         assertTrue(NightStats.search(all, "zzz").isEmpty())
     }
 
+    @Test fun morningSummaryAndBytes() {
+        val tonight = scored(10, "t", 0)
+        val noisy = listOf(scored(30, "a", 1), scored(30, "b", 2), scored(30, "c", 3))
+        assertEquals("You snored for 10m, 10% of the night.", NightStats.morningSummary(tonight, listOf(tonight)))
+        assertEquals("You snored for 10m, 10% of the night. Quieter than your average.", NightStats.morningSummary(tonight, noisy + tonight))
+        val same = listOf(scored(11, "a", 1), scored(10, "b", 2), scored(9, "c", 3))
+        assertTrue(NightStats.morningSummary(tonight, same + tonight).endsWith("About your average."))
+        assertTrue(NightStats.morningSummary(scored(60, "n", 0), same).endsWith("Noisier than your average."))
+        assertEquals("Hardly any snoring was picked up.", NightStats.morningSummary(scored(0, "q", 0), emptyList()))
+
+        assertEquals("900 B", NightStats.formatBytes(900))
+        assertEquals("2 KB", NightStats.formatBytes(2048))
+        assertEquals("12.5 MB", NightStats.formatBytes(12L * 1024 * 1024 + 512 * 1024))
+    }
+
     @Test fun shareTextHasTheEssentials() {
         val s = night("....222222....", tags = listOf("f:Alcohol", "r:Nasal strip")).withEdits(listOf("f:Alcohol", "r:Nasal strip"), "Slept late ")
         val text = NightStats.shareText(s, listOf(s), utc, Locale.US)

@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -117,6 +118,10 @@ fun ResultsListScreen(
     /** A night just deleted from its detail screen, to offer Undo for. */
     deletedNotice: Session? = null,
     onDeletedNoticeShown: () -> Unit = {},
+    /** True while saved nights are still being read. */
+    loading: Boolean = false,
+    /** Bytes used by all clips, if known. */
+    clipBytes: Long? = null,
     onOpen: (String) -> Unit,
 ) {
     val snackbar = remember { SnackbarHostState() }
@@ -140,7 +145,13 @@ fun ResultsListScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        if (sessions.isEmpty()) {
+        if (loading && sessions.isEmpty()) {
+            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                CircularProgressIndicator(color = Palette.Moon)
+                Spacer(Modifier.height(12.dp))
+                Text("Loading nights", color = Palette.Muted)
+            }
+        } else if (sessions.isEmpty()) {
             EmptyState("No nights yet", "Record a night from the Record tab, or add sample nights in Settings to look around.")
         } else {
             val shown = remember(sessions, filter, query) { NightStats.search(NightStats.filterByTag(sessions, filter), query) }
@@ -148,7 +159,15 @@ fun ResultsListScreen(
             val byMonth = remember(shown) { shown.drop(1).groupBy { fmt("MMMM yyyy", it.endMs) } }
             val monthAll = remember(shown) { shown.groupBy { fmt("MMMM yyyy", it.endMs) } }
             LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-                item { Spacer(Modifier.height(20.dp)); Text("Results", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold) }
+                item {
+                    Spacer(Modifier.height(20.dp))
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("Results", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+                        if (clipBytes != null && clipBytes > 0) {
+                            Text("Clips use ${NightStats.formatBytes(clipBytes)}", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
                 if (tags.isNotEmpty()) {
                     item(key = "filters") {
                         Row(
@@ -320,6 +339,13 @@ fun SessionDetailScreen(
     customTags: Set<String> = emptySet(),
     player: ClipPlayer = rememberClipPlayer(session.id),
     initialCompareId: String? = null,
+    /** Shows the morning summary at the top (the night has just been recorded). */
+    justFinished: Boolean = false,
+    onDismissSummary: () -> Unit = {},
+    /** Bytes used by this night's clips, if known. */
+    clipBytes: Long? = null,
+    /** Deletes the clips and keeps the night. Null hides the action. */
+    onDeleteClips: (() -> Unit)? = null,
 ) {
     player.setQueue(session.clips.map { it.file to clipFile(it.file) })
     var editing by remember(session.id) { mutableStateOf(false) }
@@ -337,7 +363,7 @@ fun SessionDetailScreen(
             IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             Spacer(Modifier.weight(1f))
             IconButton({ onOlder?.invoke() }, enabled = onOlder != null) { Icon(Icons.Filled.ChevronLeft, "Older night") }
-            Text(fmt("EEE d MMM", session.endMs), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(fmt("EEE d MMM", session.endMs), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, maxLines = 1)
             IconButton({ onNewer?.invoke() }, enabled = onNewer != null) { Icon(Icons.Filled.ChevronRight, "Newer night") }
             Spacer(Modifier.weight(1f))
             IconButton({
@@ -367,26 +393,18 @@ fun SessionDetailScreen(
                     )
                 }
             }
-            TimelineChart(
-                session,
-                playingClip = player.playing,
-                playProgress = { player.progress },
-                onClipTap = { player.toggle(it.file, clipFile(it.file)) },
-            )
-            Spacer(Modifier.height(10.dp))
-            LevelLegend(showGaps = session.gaps.isNotEmpty())
-            if (session.clips.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("▼", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Saved clip, tap to play", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
-                }
-                Spacer(Modifier.height(4.dp))
-                ClipControls(session, player)
+            if (justFinished) {
+                Spacer(Modifier.height(8.dp))
+                MorningSummary(
+                    text = remember(session, history) { NightStats.morningSummary(session, history) },
+                    askForNotes = onSave != null && session.tags.isEmpty() && session.note.isBlank(),
+                    onAddNotes = { editing = true },
+                    onDismiss = onDismissSummary,
+                )
             }
 
-            Spacer(Modifier.height(20.dp))
+            // First screenful: how was the night?
+            Spacer(Modifier.height(8.dp))
             Card {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -400,26 +418,47 @@ fun SessionDetailScreen(
                             },
                             style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
                         )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Snoring ${formatDuration(session.snoringSec)} · ${(session.snoringFraction * 100).roundToInt()}% of the night",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                         if (comparison != null) {
-                            Spacer(Modifier.height(4.dp))
                             Text(
                                 NightStats.comparisonText(session.score, comparison) + " (${comparison.average})",
                                 color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
                             )
                         }
                     }
-                    ScoreDial(session, 96.dp)
+                    Spacer(Modifier.width(8.dp))
+                    ScoreDial(session, 84.dp)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            TimelineChart(
+                session,
+                playingClip = player.playing,
+                playProgress = { player.progress },
+                onClipTap = { player.toggle(it.file, clipFile(it.file)) },
+            )
+            Spacer(Modifier.height(4.dp))
+            LevelLegend(showGaps = session.gaps.isNotEmpty())
+            if (session.clips.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("▼", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Saved clip, tap to play", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            // Then the details.
+            Spacer(Modifier.height(16.dp))
             Card {
                 Column {
+                    SectionTitle("The night in detail")
+                    Spacer(Modifier.height(4.dp))
                     StatRow("Time recorded", formatDuration(session.durationSec))
-                    StatRow(
-                        "Time snoring",
-                        "${formatDuration(session.snoringSec)} · ${(session.snoringFraction * 100).roundToInt()}%",
-                    )
                     for (l in 1..3) {
                         StatRow(Level.names[l], formatDuration(session.secondsByLevel[l]), dot = Palette.levels[l])
                     }
@@ -469,7 +508,7 @@ fun SessionDetailScreen(
 
             if (session.clips.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                ClipList(session, player, clipFile)
+                ClipList(session, player, clipFile, clipBytes, onDeleteClips?.let { del -> { player.stop(); del() } })
             }
 
             Spacer(Modifier.height(12.dp))
@@ -579,12 +618,17 @@ fun EditNightFields(
 }
 
 @Composable
-private fun ClipList(session: Session, player: ClipPlayer, clipFile: (String) -> File) {
+private fun ClipList(session: Session, player: ClipPlayer, clipFile: (String) -> File, bytes: Long?, onDeleteClips: (() -> Unit)?) {
+    var confirm by remember(session.id) { mutableStateOf(false) }
     Card {
         Column {
-            SectionTitle("Loudest moments")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SectionTitle("Loudest moments", Modifier.weight(1f))
+                if (bytes != null && bytes > 0) Text(NightStats.formatBytes(bytes), color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
+            }
             Text("Ten-second clips of the strongest snoring.", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(4.dp))
+            ClipControls(session, player)
             for (clip in session.clips) {
                 val isPlaying = player.playing == clip.file
                 val at = clock(session.startMs + clip.offsetSec * 1000L)
@@ -629,6 +673,44 @@ private fun ClipList(session: Session, player: ClipPlayer, clipFile: (String) ->
                             drawStopIndicator = {},
                         )
                     }
+                }
+            }
+            if (onDeleteClips != null) {
+                TextButton({ confirm = true }, Modifier.heightIn(min = 48.dp)) {
+                    Icon(Icons.Filled.Delete, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Delete clips, keep the night")
+                }
+            }
+        }
+    }
+    if (confirm && onDeleteClips != null) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("Delete this night's clips?") },
+            text = { Text("The recordings are removed to free space. The timeline, score and notes stay.") },
+            confirmButton = { TextButton({ confirm = false; onDeleteClips() }) { Text("Delete clips") } },
+            dismissButton = { TextButton({ confirm = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun MorningSummary(text: String, askForNotes: Boolean, onAddNotes: () -> Unit, onDismiss: () -> Unit) {
+    Card(Modifier.border(1.dp, Palette.Moon.copy(alpha = 0.5f), RoundedCornerShape(20.dp))) {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Good morning", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Palette.Moon)
+                IconButton(onDismiss) { Icon(Icons.Filled.Close, "Dismiss summary", tint = Palette.Muted) }
+            }
+            Text(text, style = MaterialTheme.typography.bodyLarge)
+            if (askForNotes) {
+                Spacer(Modifier.height(6.dp))
+                Text("Anything different last night? Tag it now while you remember.", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
+                TextButton(onAddNotes, Modifier.heightIn(min = 48.dp)) {
+                    Icon(Icons.Filled.Edit, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Add factors or a note")
                 }
             }
         }

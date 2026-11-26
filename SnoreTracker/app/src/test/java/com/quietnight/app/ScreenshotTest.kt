@@ -187,6 +187,31 @@ class ScreenshotTest {
         compose.onRoot().captureRoboImage("build/shots/results-search.png")
     }
 
+    @Test fun detailMorning() {
+        val s = withProblems().withEdits(emptyList(), "")
+        shot("detail-morning") {
+            SessionDetailScreen(
+                s, {}, {}, null, {}, { File(it) }, history = sessions, onSave = {},
+                justFinished = true, clipBytes = 3 * 320_044L, onDeleteClips = {},
+            )
+        }
+        compose.onAllNodesWithContentDescription("Play clip from", substring = true, useUnmergedTree = true).onLast().performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/detail-morning-clips.png")
+    }
+
+    @Config(qualifiers = "w360dp-h780dp-xhdpi")
+    @Test fun detailNarrow() {
+        val s = withProblems()
+        shot("detail-360") { SessionDetailScreen(s, {}, {}, null, {}, { File(it) }, history = sessions, onSave = {}, justFinished = true, clipBytes = 960_000L, onDeleteClips = {}) }
+        compose.onAllNodesWithContentDescription("Play clip from", substring = true, useUnmergedTree = true).onLast().performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/detail-360-clips.png")
+    }
+
+    @Config(qualifiers = "w360dp-h780dp-xhdpi")
+    @Test fun resultsNarrow() = shot("results-360") { ResultsListScreen(sessions, nowMs = now, clipBytes = 48_300_000L) {} }
+
+    @Test fun resultsLoading() = shot("results-loading") { ResultsListScreen(emptyList(), loading = true) {} }
+
     @Test fun resultsLargeText() = bigShot("results-large-text") { ResultsListScreen(sessions, nowMs = now) {} }
 
     @Test fun detailClips() {
