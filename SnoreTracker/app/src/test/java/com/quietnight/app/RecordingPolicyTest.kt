@@ -203,6 +203,21 @@ class RecordingPolicyTest {
         assertTrue(RecordingPolicy.digitalSilenceIsGap(RecordingPolicy.DIGITAL_SILENCE_GAP_MS))
     }
 
+    @Test fun captureSourcesFallBackFromUnprocessed() {
+        val unprocessed = android.media.MediaRecorder.AudioSource.UNPROCESSED
+        val voice = android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION
+        val mic = android.media.MediaRecorder.AudioSource.MIC
+        assertEquals(listOf(unprocessed, voice, mic), com.quietnight.app.audio.captureSources(true))
+        assertEquals(listOf(voice, mic), com.quietnight.app.audio.captureSources(false))
+        // UNPROCESSED advertised but refused at this rate: the next source is used.
+        val tried = ArrayList<Int>()
+        val got = com.quietnight.app.audio.firstWorkingSource(com.quietnight.app.audio.captureSources(true)) { s ->
+            tried += s; if (s == unprocessed) null else "src$s"
+        }
+        assertEquals("src$voice", got)
+        assertEquals(listOf(unprocessed, voice), tried)
+    }
+
     @Test fun serviceLifecycle() {
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = false))
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = true))

@@ -253,6 +253,18 @@ class ScreenshotTest {
         )
     }
 
+    @Test fun recordWakeNoNotifications() {
+        shot("record-wake-no-notifications") {
+            RecordScreen(
+                Prefs(), RecState(), null, {}, {}, {}, {}, nowMs = { now },
+                wake = WakeSetting(enabled = true, hour = 6, minute = 45), notificationsAllowed = false, is24Hour = true,
+            )
+        }
+        compose.onNodeWithText("Wake-up alarm").performScrollTo().performClick()
+        compose.onNodeWithText("Wake-up alarm").performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/record-wake-no-notifications.png")
+    }
+
     @Test fun recordingDimmed() = shot("recording-dimmed") {
         RecordScreen(
             Prefs(), RecState(recording = true, startMs = now - 3 * 3600_000L, listening = true),

@@ -75,8 +75,28 @@ fun openRawAudioRecord(context: Context, rate: Int): AudioRecord? {
     val minBuf = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
     if (minBuf <= 0) return null // ERROR or ERROR_BAD_VALUE: rate not supported
     val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    val source = if (am.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) == "true")
-        MediaRecorder.AudioSource.UNPROCESSED else MediaRecorder.AudioSource.VOICE_RECOGNITION
+    val unprocessed = am.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) == "true"
+    return firstWorkingSource(captureSources(unprocessed)) { source -> openAt(source, rate, minBuf) }
+}
+
+/**
+ * Audio sources to try, best first: the raw microphone when the phone says it has one, then the
+ * speech-tuned source (little processing on most phones), then the plain microphone. Some phones
+ * advertise UNPROCESSED yet refuse it at a given rate.
+ */
+fun captureSources(unprocessedAdvertised: Boolean): List<Int> = buildList {
+    if (unprocessedAdvertised) add(MediaRecorder.AudioSource.UNPROCESSED)
+    add(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+    add(MediaRecorder.AudioSource.MIC)
+}
+
+fun <T : Any> firstWorkingSource(sources: List<Int>, open: (Int) -> T?): T? {
+    for (src in sources) open(src)?.let { return it }
+    return null
+}
+
+@SuppressLint("MissingPermission") // callers check RECORD_AUDIO first
+private fun openAt(source: Int, rate: Int, minBuf: Int): AudioRecord? {
     val audio = try {
         AudioRecord(source, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, rate * 8)) // ~4 s of 16-bit audio, so a slow moment cannot overrun
     } catch (e: Exception) {
