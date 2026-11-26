@@ -12,6 +12,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.longClick
 import com.quietnight.app.data.NightStats
@@ -121,5 +124,49 @@ class AppFlowTest {
         // The opened night has the score the calendar showed.
         compose.onAllNodesWithText(score).onFirst().assertExists()
         compose.onNodeWithContentDescription("Back").assertExists()
+    }
+
+    /**
+     * A first-time user with nothing recorded: every tab shows its empty state, data buttons that
+     * need nights are disabled, and Restore opens without crashing. Then one short test-run night
+     * (the first thing many people record): Results, its detail and Trends all cope with it.
+     */
+    @Test fun emptyThenOneTestRun() {
+        val app = compose.activity.application as QuietNightApp
+        waitForText("Skip")
+        compose.onNodeWithText("Skip").performClick()
+        compose.waitUntil(timeout) { app.repository.loaded.value }
+
+        tab("Results").performClick()
+        waitForText("No nights yet")
+        tab("Trends").performClick()
+        waitForText("No trends yet")
+        waitForText("Trends appear once you have recorded a few nights.")
+        tab("Settings").performClick()
+        waitForText("Export CSV")
+        compose.onNodeWithText("Export CSV").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Back up").assertIsNotEnabled()
+        compose.onNodeWithText("Restore").assertIsEnabled().performClick() // opens the system picker; must not crash
+        tab("Record").performClick()
+        waitForText("Start")
+
+        // One 30-minute test run with a clip whose file was never written.
+        val start = System.currentTimeMillis() - 3_600_000L
+        val levels = ByteArray(180) { if (it in 60..90) 2 else 0 }
+        app.repository.save(
+            com.quietnight.app.data.Session(
+                "s$start", start, start + 1_800_000L, 10, levels, ByteArray(180) { if (levels[it] > 0) 25 else 0 },
+                emptyList(), listOf(com.quietnight.app.data.Clip(600, "c60.wav", 2, 25)), note = com.quietnight.app.data.Session.TEST_RUN_NOTE,
+            ),
+        )
+        tab("Results").performClick()
+        waitForText("Test run", substring = true)
+        compose.onNode(hasText("Snoring", substring = true) and hasClickAction()).performClick()
+        waitForText("Snore score")
+        compose.onAllNodesWithContentDescription("Play clip from", substring = true, useUnmergedTree = true).onFirst().performScrollTo().performClick()
+        waitForText("Can't play")
+        compose.onNodeWithContentDescription("Back").performClick()
+        tab("Trends").performClick()
+        waitForText("Trends appear once you have a night with at least an hour recorded. Test runs are left out.")
     }
 }

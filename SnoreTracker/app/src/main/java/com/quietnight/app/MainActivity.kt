@@ -167,10 +167,12 @@ private fun AppRoot(app: QuietNightApp) {
             when {
                 tab == 1 && detail != null -> {
                     // Whole-night audio index and size, read off the main thread.
-                    val nightAudio by androidx.compose.runtime.produceState(Pair(emptyList<com.quietnight.app.audio.AudioSegment>(), 0L), detail.id, audioVersion) {
+                    // Keyed on the night itself, so a save that finishes after it opened (the service writing its
+                    // last segment) is picked up.
+                    val nightAudio by androidx.compose.runtime.produceState(Triple(emptyList<com.quietnight.app.audio.AudioSegment>(), 0L, 0L), detail, audioVersion) {
                         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                             val dir = app.repository.clipDir(detail.id)
-                            com.quietnight.app.audio.SegmentIndex.read(dir) to app.repository.audioBytes(detail.id)
+                            Triple(com.quietnight.app.audio.SegmentIndex.read(dir), app.repository.audioBytes(detail.id), app.repository.clipBytes(detail.id))
                         }
                     }
                     val index = sessions.indexOf(detail) // newest first
@@ -186,7 +188,7 @@ private fun AppRoot(app: QuietNightApp) {
                         customTags = prefs.customTags,
                         justFinished = detail.id == freshId,
                         onDismissSummary = { freshId = null },
-                        clipBytes = remember(detail) { app.repository.clipBytes(detail.id) },
+                        clipBytes = nightAudio.third,
                         onDeleteClips = { app.repository.deleteClips(detail.id) },
                         audioSegments = nightAudio.first,
                         audioDir = app.repository.clipDir(detail.id),
@@ -227,9 +229,9 @@ private fun AppRoot(app: QuietNightApp) {
                     hasDemo = sessions.any { it.demo },
                     hasSessions = sessions.isNotEmpty(),
                     onPrefs = app.settings::update,
-                    onAddDemo = { DemoData.generate(System.currentTimeMillis()).forEach(app.repository::save) },
-                    onRemoveDemo = { app.repository.deleteWhere { it.demo } },
-                    onDeleteAll = { app.repository.deleteWhere { true } },
+                    onAddDemo = { Thread { DemoData.generate(System.currentTimeMillis()).forEach(app.repository::save) }.start() }, // ~35 files: off the main thread
+                    onRemoveDemo = { Thread { app.repository.deleteWhere { it.demo } }.start() },
+                    onDeleteAll = { Thread { app.repository.deleteWhere { true } }.start() },
                     onBackup = data.onBackup,
                     onRestore = data.onRestore,
                     onExportCsv = data.onExportCsv,

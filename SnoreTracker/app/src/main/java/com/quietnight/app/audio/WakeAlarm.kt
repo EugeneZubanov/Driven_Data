@@ -26,7 +26,7 @@ data class WakeSetting(val enabled: Boolean = false, val hour: Int = 7, val minu
 object WakeAlarm {
     private const val PREFS = "wake"
     private const val CHANNEL_ID = "wake"
-    private const val NOTIFICATION_ID = 2
+    private const val NOTIFICATION_ID = 6 // 2 is the bedtime reminder's
 
     private val _setting = MutableStateFlow<WakeSetting?>(null)
 
@@ -62,7 +62,7 @@ object WakeAlarm {
             },
         )
         val open = PendingIntent.getActivity(
-            context, 2, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
+            context, NOTIFICATION_ID, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
         val n = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_moon)
