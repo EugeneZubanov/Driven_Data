@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.quietnight.app.BuildConfig
 import com.quietnight.app.data.Prefs
+import com.quietnight.app.data.StorageCleanup
 import com.quietnight.app.data.ReminderTime
 import com.quietnight.app.data.WeightLog
 
@@ -57,6 +58,9 @@ fun SettingsScreen(
     onWeight: (((WeightLog) -> WeightLog) -> Unit)? = null,
     onSaveReport: (() -> Unit)? = null,
     onShareReport: (() -> Unit)? = null,
+    storageBytes: Long? = null,
+    onClipCleanup: ((Int) -> Unit)? = null,
+    storageMessage: String? = null,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
@@ -111,6 +115,11 @@ fun SettingsScreen(
         if (onBackup != null || onRestore != null || onExportCsv != null) {
             Spacer(Modifier.height(12.dp))
             DataCard(hasSessions, onBackup, onRestore, onExportCsv, dataMessage, dataBusy, onSaveReport, onShareReport)
+        }
+
+        if (onClipCleanup != null) {
+            Spacer(Modifier.height(12.dp))
+            StorageCard(prefs.clipCleanupDays, storageBytes, storageMessage, onClipCleanup)
         }
 
         if (onReminder != null) {
@@ -182,7 +191,8 @@ private fun DataCard(
                 "Save a backup file of every night and its clips wherever you choose, and restore it on this " +
                     "or another phone. Restoring adds missing nights and keeps the ones already here. " +
                     "The spreadsheet file has one row per night; the report is a printable summary of the last 30 nights. " +
-                    "Sample nights are left out.",
+                    "Sample nights are left out. Backups include clips and any whole-night audio, so they can be large " +
+                    "(about 7 MB per hour of whole-night audio).",
                 color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
@@ -235,5 +245,36 @@ private fun ReminderCard(on: Boolean, minute: Int, onReminder: (Boolean, Int) ->
             confirmButton = { TextButton({ picking = false; onReminder(true, state.hour * 60 + state.minute) }) { Text("Set") } },
             dismissButton = { TextButton({ picking = false }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun StorageCard(days: Int, bytes: Long?, message: String?, onDays: (Int) -> Unit) {
+    Card {
+        Column {
+            SectionTitle("Audio storage")
+            Text(
+                if (bytes == null) "Working out how much space audio uses…"
+                else "Clips and whole-night audio use ${StorageCleanup.formatBytes(bytes)} on this phone.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text("Clean up old audio automatically", fontWeight = FontWeight.Medium)
+            Text(
+                "Deletes the clips and whole-night audio of nights older than this, now and each time the app starts. " +
+                    "The nights, scores and timelines stay.",
+                color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StorageCleanup.CHOICES.forEach { d ->
+                    FilterChip(days == d, { onDays(d) }, label = { Text(if (d == 0) "Off" else "$d days") })
+                }
+            }
+            if (message != null) {
+                Spacer(Modifier.height(6.dp))
+                Text(message, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
     }
 }

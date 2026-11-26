@@ -13,6 +13,8 @@ import com.quietnight.app.data.Backup
 import com.quietnight.app.data.BackupException
 import android.content.Intent
 import com.quietnight.app.data.Csv
+import com.quietnight.app.data.StorageCleanup
+import androidx.compose.runtime.setValue
 import com.quietnight.app.data.ReportData
 import com.quietnight.app.data.WeightStore
 import kotlinx.coroutines.CoroutineScope
@@ -35,12 +37,14 @@ object DataJobs {
     private val _state = MutableStateFlow(DataJobState())
     val state: StateFlow<DataJobState> = _state
 
-    fun run(working: String, block: (progress: (String) -> Unit) -> String) {
+    fun run(app: QuietNightApp, working: String, block: (progress: (String) -> Unit) -> String) {
         if (_state.value.busy) return
         val report = _state.value.reportUri
         _state.value = DataJobState(true, working, report)
         scope.launch {
             val msg = try {
+                // Nights may still be loading in the background; these jobs need the full list.
+                app.repository.ensureLoaded()
                 block { p -> _state.value = DataJobState(true, p, report) }
             } catch (e: BackupException) {
                 e.message ?: "Could not read the backup."
@@ -51,21 +55,21 @@ object DataJobs {
         }
     }
 
-    fun report(app: QuietNightApp, resolver: ContentResolver, uri: Uri) = run("Making the report…") {
+    fun report(app: QuietNightApp, resolver: ContentResolver, uri: Uri) = run(app, "Making the report…") {
         val data = ReportData.build(app.repository.sessions.value, WeightStore.get(app.filesDir).log.value, System.currentTimeMillis())
         resolver.openOutputStream(uri)?.use { ReportRenderer.writePdf(data, it) } ?: throw IllegalStateException()
         _state.value = _state.value.copy(reportUri = uri)
         "Saved the report (${data.nights.size} ${if (data.nights.size == 1) "night" else "nights"})."
     }
 
-    fun backup(app: QuietNightApp, resolver: ContentResolver, uri: Uri) = run("Saving backup…") {
+    fun backup(app: QuietNightApp, resolver: ContentResolver, uri: Uri) = run(app, "Saving backup…") {
         val n = resolver.openOutputStream(uri)?.use { out ->
             Backup.export(app.repository.sessions.value, app.repository::clipFile, out, WeightStore.get(app.filesDir).log.value)
         } ?: throw IllegalStateException()
         "Backed up $n ${if (n == 1) "night" else "nights"}."
     }
 
-    fun restore(app: QuietNightApp, resolver: ContentResolver, uri: Uri, cacheDir: File) = run("Restoring…") { progress ->
+    fun restore(app: QuietNightApp, resolver: ContentResolver, uri: Uri, cacheDir: File) = run(app, "Restoring…") { progress ->
         val r = resolver.openInputStream(uri)?.use { input ->
             Backup.restore(
                 input,
@@ -85,7 +89,7 @@ object DataJobs {
         }
     }
 
-    fun exportCsv(app: QuietNightApp, resolver: ContentResolver, uri: Uri) = run("Saving CSV…") {
+    fun exportCsv(app: QuietNightApp, resolver: ContentResolver, uri: Uri) = run(app, "Saving CSV…") {
         val text = Csv.export(app.repository.sessions.value, WeightStore.get(app.filesDir).log.value)
         resolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) } ?: throw IllegalStateException()
         "Saved the spreadsheet file."
@@ -146,4 +150,25 @@ fun rememberDataActions(app: QuietNightApp): DataActions {
             }
         },
     )
+}
+
+/** Audio storage shown in Settings, and the automatic clean-up choice. */
+class StorageState(val bytes: Long?, val message: String?, val onCleanupDays: (Int) -> Unit)
+
+@Composable
+fun rememberStorageState(app: QuietNightApp): StorageState {
+    val sessions by app.repository.sessions.collectAsStateWithLifecycle()
+    var message by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    var refresh by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val bytes by androidx.compose.runtime.produceState<Long?>(null, sessions, refresh) {
+        value = kotlinx.coroutines.withContext(Dispatchers.IO) { runCatching { app.repository.clipBytes() }.getOrNull() }
+    }
+    return StorageState(bytes, message) { days ->
+        app.settings.update { it.copy(clipCleanupDays = days) }
+        message = null
+        StorageCleanup.runInBackground(app.repository, days) { freed ->
+            message = if (freed > 0) "Freed ${StorageCleanup.formatBytes(freed)}." else "Nothing old enough to remove yet."
+            refresh++
+        }
+    }
 }
