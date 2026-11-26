@@ -50,6 +50,17 @@ class ReportData(
             )
         }
 
+        /** True when the report would have at least one real night to show (same rules as [build]). */
+        fun available(sessions: List<Session>, nowMs: Long, days: Int = DAYS): Boolean {
+            val to = Trends.dayOf(nowMs).timeInMillis
+            val from = Trends.dayOf(nowMs).apply { add(java.util.Calendar.DAY_OF_MONTH, -(days - 1)) }.timeInMillis
+            return sessions.any { !it.demo && it.countsForTrends && Trends.dayOf(it).timeInMillis in from..to }
+        }
+
+        /** Why the report can't be made yet, for a one-line note under a disabled button. */
+        const val UNAVAILABLE =
+            "The report needs a recorded night of an hour or more in the last 30 days; sample nights and test runs are left out."
+
         fun fileName(nowMs: Long) = "quiet-night-report-${SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(nowMs))}.pdf"
     }
 }

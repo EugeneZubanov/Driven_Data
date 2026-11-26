@@ -20,10 +20,10 @@ the score means. Before a real night, try the 5-minute test run on the Record ta
 
 ## The four tabs
 
-**Record** – start and stop (hold to stop), a fall-asleep delay before listening starts, factors
-and remedies to tag the night with, a microphone check, an optional wake-up time, optional
-whole-night audio, and phone-specific steps to keep the recording running. A test run is kept
-apart from real nights.
+**Record** – Start, a 5-minute test run (kept apart from real nights), and a *Tonight* card:
+fall-asleep delay, wake-up alarm, factors and remedies, optional whole-night audio and a microphone
+check. While recording the screen dims to near-black after 30 s (tap to wake) and Stop needs a
+1.5 s hold. Phone-specific steps help keep the recording running.
 
 **Results** – nights by month. Each night has a loudness timeline, time snoring by level (mild,
 loud, heavy), the score, up to 15 ten-second clips of the loudest snoring and, if it was kept, the
@@ -70,8 +70,6 @@ partial wake lock, and is saved every 2 minutes.
 - **Screen and battery**: the screen may turn off after 10 minutes in the dimmed view; the live
   meter updates less often when dimmed or off. Expect very roughly 1.5–4% battery an hour unplugged
   (an estimate, not measured).
-- Times follow the phone's 12/24-hour setting.
-
 What the app cannot do: see the end of [TESTING.md](TESTING.md).
 
 ## How detection works
@@ -141,7 +139,7 @@ different sensitivity, the card says why; the setting only changes when you pres
   - `clips/<night>/` folders with the clips, any whole-night audio (`night-audio.json` and
     `audio-NNN.m4a`) and `detector.json`
 
-  Sample nights are left out. Whole-night audio makes backups large: about 7 MB per hour.
+  Sample nights are left out. Whole-night audio makes backups large: about 11 MB per hour.
 - **Restore** adds the nights that are not already on the phone (matched by id), and weight days
   not already logged. It runs in the background, and its result stays shown if you leave Settings.
   - **Checks before anything is saved:** about twice the backup's size must be free, every night

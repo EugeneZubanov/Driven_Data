@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import com.quietnight.app.data.Period
 import com.quietnight.app.data.Session
 import com.quietnight.app.data.TrendBar
+import com.quietnight.app.data.ReportData
 import com.quietnight.app.data.Trends
 import com.quietnight.app.data.WeightLog
 import kotlin.math.abs
@@ -146,9 +147,14 @@ fun TrendsScreen(
                         color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(8.dp))
+                    val canReport = remember(allSessions) { ReportData.available(allSessions, System.currentTimeMillis()) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onSaveReport) { Text("Save report") }
+                        OutlinedButton(onSaveReport, enabled = canReport) { Text("Save report") }
                         if (onShareReport != null) OutlinedButton(onShareReport) { Text("Share") }
+                    }
+                    if (!canReport) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(ReportData.UNAVAILABLE, color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
                     }
                     if (reportStatus != null) {
                         Spacer(Modifier.height(6.dp))
