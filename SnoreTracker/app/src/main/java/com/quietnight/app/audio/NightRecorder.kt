@@ -53,10 +53,7 @@ class NightRecorder(
             val posInBucket = (totalSamples % bucketSamples).toInt()
             val n = minOf(count - offset, bucketSamples - posInBucket)
             if (ring.isNotEmpty()) System.arraycopy(samples, offset, ring[bucket % 3], posInBucket, n)
-            if (totalSamples >= delaySamples) {
-                if (offset == 0 && n == count) detector.feed(samples, count)
-                else detector.feed(samples.copyOfRange(offset, offset + n), n)
-            }
+            if (totalSamples >= delaySamples) detector.feed(samples, offset, n)
             totalSamples += n
             offset += n
             if (posInBucket + n == bucketSamples && bucket >= 2) considerClip(bucket - 2)

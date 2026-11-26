@@ -25,7 +25,13 @@ the repo so that every build can update an installed copy without losing data.
 
 ## How detection works
 
-`SnoreDetector` looks at 50 ms frames: loudness above an adaptive room-noise floor, and the
-share of energy below ~900 Hz. Loud, low-pitched bursts 0.25–4 s long that repeat every 2–10 s
-(a breathing rhythm) count as snores. The score is the share of the night spent snoring,
-weighted mild 0.4×, loud 1×, heavy 2×. It is a heuristic, not a medical measurement.
+`SnoreDetector` looks at 50 ms frames: loudness above the room's noise floor (the quietest frame
+of the last ~10 s, so a fan switching on is absorbed within seconds), the share of energy below
+~900 Hz, and how much the low band flutters at 15–70 Hz. Loud, low-pitched bursts 0.35–4 s long
+count once three of them repeat at a steady breathing interval (2–10 s); bursts chopped up like
+syllables are ignored unless they flutter like a snore. The score is the share of the night spent
+snoring, weighted mild 0.4×, loud 1×, heavy 2×. It is a heuristic, not a medical measurement.
+
+The unit tests run it over a synthetic corpus of snoring and night-time noises and print a hit-rate
+table (`app/build/reports/detector-corpus.txt`). That catches regressions; it does not prove
+accuracy on real recordings.
