@@ -159,7 +159,7 @@ fun CompareCard(a: Session, b: Session, onChange: () -> Unit, onClose: () -> Uni
                     val step = if (hours.size > 7) 2 else 1
                     var lastRight = -Float.MAX_VALUE
                     val labels = hours.filterIndexed { i, _ -> i % step == 0 }.mapNotNull { t ->
-                        val layout = measurer.measure(clock(t), style)
+                        val layout = measurer.measure(hourLabel(t), style)
                         val x = (t - ws) / span * size.width
                         val left = (x - layout.size.width / 2f).coerceIn(0f, size.width - layout.size.width)
                         if (left < lastRight + 6.dp.toPx()) null else { lastRight = left + layout.size.width; left to layout }

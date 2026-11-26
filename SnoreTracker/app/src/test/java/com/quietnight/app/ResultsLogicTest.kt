@@ -2,11 +2,14 @@ package com.quietnight.app
 
 import com.quietnight.app.data.Clip
 import com.quietnight.app.data.Comparison
+import com.quietnight.app.data.Level
 import com.quietnight.app.data.Gap
 import com.quietnight.app.data.NightStats
 import com.quietnight.app.data.Session
 import com.quietnight.app.data.SessionRepository
 import com.quietnight.app.data.Stretch
+import com.quietnight.app.data.Span
+import com.quietnight.app.data.Backup
 import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -256,6 +259,79 @@ class ResultsLogicTest {
         assertEquals(t0 + 90 * 60_000L, wa.second)
         assertEquals(b.startMs - 3_600_000L, wb.first)
         assertEquals(wb.first + 90 * 60_000L, wb.second)
+    }
+
+    @Test fun notSnoringIsLeftOutOfSnoringAndUndoIsExact() {
+        val s = night("..2222..33..") // 4 loud + 2 heavy minutes of 12
+        val marked = s.withNotSnoring(listOf(Span(120, 360))) // the loud stretch
+        assertEquals(6 * 60, s.snoringSec)
+        assertEquals(2 * 60, marked.snoringSec)
+        assertEquals(10 * 60, marked.secondsByLevel[0]) // heard, so it counts as quiet
+        assertEquals(240, marked.correctedSec)
+        assertEquals(720, marked.listenedSec) // denominator unchanged
+        assertTrue(marked.score < s.score)
+        assertEquals(Level.QUIET, marked.effectiveLevel(3))
+        assertEquals(2, marked.levels[3].toInt()) // detection itself is kept
+        // Undo: removing the span gives back exactly the original numbers.
+        val undone = marked.withNotSnoring(emptyList())
+        assertEquals(s.score, undone.score)
+        assertArrayEquals(s.secondsByLevel, undone.secondsByLevel)
+        // Stats follow the correction.
+        assertEquals(8 * 60, NightStats.snoringStartSec(marked, withinSec = 120))
+        val cols = NightStats.columns(marked, marked.startMs, marked.endMs, 12)
+        assertEquals(0, cols.levels[3])
+        assertTrue(cols.corrected[3] > 0)
+        assertEquals(0, cols.corrected[8]) // heavy minutes untouched
+        assertEquals(3, cols.levels[8])
+    }
+
+    @Test fun notSnoringRoundTripsAndOldFilesLoad() {
+        val s = night("2222").withNotSnoring(listOf(Span(0, 60), Span(120, 180))).withEdits(listOf("f:Alcohol"), "n")
+        val back = Session.fromJson(JSONObject(s.toJson().toString()))
+        assertEquals(listOf(Span(0, 60), Span(120, 180)), back.notSnoring) // withEdits keeps it too
+        assertEquals(s.score, back.score)
+        assertFalse(night("1").toJson().has("notSnoring"))
+        assertTrue(Session.fromJson(JSONObject(night("1").toJson().toString())).notSnoring.isEmpty())
+    }
+
+    @Test fun backupValidatesNotSnoring() {
+        val ok = night("2222", "a").withNotSnoring(listOf(Span(0, 60)))
+        assertTrue(Backup.isValid(ok))
+        assertFalse(Backup.isValid(night("2222", "a").withNotSnoring(listOf(Span(60, 0)))))
+        assertFalse(Backup.isValid(night("2222", "a").withNotSnoring(List(1001) { Span(0, 60) })))
+    }
+
+    @Test fun episodeAtJoinsShortPauses() {
+        val s = night("....22.2......1.")
+        assertEquals(Span(4 * 60, 8 * 60), NightStats.episodeAt(s, 5, pauseSec = 60, reachSec = 0))
+        assertEquals(Span(4 * 60, 8 * 60), NightStats.episodeAt(s, 3, pauseSec = 60, reachSec = 60)) // finds it nearby
+        assertNull(NightStats.episodeAt(s, 10, pauseSec = 60, reachSec = 60))
+        assertEquals(Span(14 * 60, 15 * 60), NightStats.episodeAt(s, 14, pauseSec = 60, reachSec = 0))
+        // Marked stretches no longer count as snoring.
+        assertNull(NightStats.episodeAt(s.withNotSnoring(listOf(Span(240, 480))), 5, pauseSec = 60, reachSec = 0))
+    }
+
+    @Test fun countsForTrends() {
+        val hour = night("1".repeat(60))
+        assertTrue(hour.countsForTrends)
+        assertFalse(night("1".repeat(59)).countsForTrends)
+        assertFalse(hour.withEdits(emptyList(), Session.TEST_RUN_NOTE).countsForTrends)
+        assertEquals(com.quietnight.app.audio.RecordingService.TEST_RUN_NOTE, Session.TEST_RUN_NOTE)
+        // An hour and a half with 40 minutes of no sound has under an hour listened.
+        val gapped = night("1".repeat(90)).let {
+            Session(it.id, it.startMs, it.endMs, it.bucketSec, it.levels, it.amps, it.tags, it.clips, gaps = listOf(com.quietnight.app.data.Gap(0, 2400)))
+        }
+        assertFalse(gapped.countsForTrends)
+    }
+
+    @Test fun clockFollows12And24Hour() {
+        val t = t0 + 5 * 60_000L // 23:35 UTC
+        assertEquals("23:35", com.quietnight.app.ui.formatClock(t, true, Locale.US, utc))
+        assertEquals("11:35 PM", com.quietnight.app.ui.formatClock(t, false, Locale.US, utc))
+        assertEquals("23:00", com.quietnight.app.ui.formatHour(t0 - 30 * 60_000L, true, Locale.US, utc))
+        assertEquals("11 PM", com.quietnight.app.ui.formatHour(t0 - 30 * 60_000L, false, Locale.US, utc))
+        val text = NightStats.shareText(night("....2222"), emptyList(), utc, Locale.US, is24 = false)
+        assertTrue(text, "11:30 PM–11:38 PM" in text)
     }
 
     @Test fun clipPlayerReportsMissingFileWithoutPlaying() {

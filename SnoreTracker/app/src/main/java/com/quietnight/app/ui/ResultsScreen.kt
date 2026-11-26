@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.PlayArrow
@@ -79,6 +80,8 @@ import androidx.compose.ui.unit.dp
 import com.quietnight.app.data.Level
 import com.quietnight.app.data.NightStats
 import com.quietnight.app.data.Session
+import com.quietnight.app.data.Span
+import com.quietnight.app.data.Clip
 import com.quietnight.app.data.Tags
 import com.quietnight.app.data.formatDuration
 import kotlinx.coroutines.launch
@@ -291,6 +294,7 @@ private fun NightRow(s: Session, onClick: () -> Unit) {
                 Text(formatDuration(s.durationSec), color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
                 if (s.demo) Text("Sample", color = Palette.Muted, style = MaterialTheme.typography.labelSmall)
                 if (s.interruptedAtMs > 0) Text("Cut short", color = Palette.Loud, style = MaterialTheme.typography.labelSmall)
+                if (s.note == Session.TEST_RUN_NOTE) Text("Test run", color = Palette.Muted, style = MaterialTheme.typography.labelSmall)
             }
             MiniTimeline(s, Modifier.weight(1f))
             Spacer(Modifier.width(12.dp))
@@ -311,7 +315,7 @@ private fun PinnedCard(s: Session, onClick: () -> Unit) {
                         color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
-                        "Snoring ${formatDuration(s.snoringSec)}" + if (s.demo) " · Sample" else "",
+                        "Snoring ${formatDuration(s.snoringSec)}" + (if (s.demo) " · Sample" else "") + (if (s.note == Session.TEST_RUN_NOTE) " · Test run" else ""),
                         color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -346,7 +350,15 @@ fun SessionDetailScreen(
     clipBytes: Long? = null,
     /** Deletes the clips and keeps the night. Null hides the action. */
     onDeleteClips: (() -> Unit)? = null,
+    /** This night is still being recorded: no editing or deleting. */
+    recordingInProgress: Boolean = false,
 ) {
+    val canEdit = onSave != null && !recordingInProgress
+    var selection by remember(session.id) { mutableStateOf<Span?>(null) }
+    val markNotSnoring: (Span) -> Unit = { span -> onSave?.invoke(session.withNotSnoring(session.notSnoring + span)) }
+    val unmark: (Span) -> Unit = { span ->
+        onSave?.invoke(session.withNotSnoring(session.notSnoring.filterNot { it.fromSec < span.toSec && it.toSec > span.fromSec }))
+    }
     player.setQueue(session.clips.map { it.file to clipFile(it.file) })
     var editing by remember(session.id) { mutableStateOf(false) }
     var picking by remember(session.id) { mutableStateOf(false) }
@@ -369,11 +381,11 @@ fun SessionDetailScreen(
             IconButton({
                 val send = Intent(Intent.ACTION_SEND)
                     .setType("text/plain")
-                    .putExtra(Intent.EXTRA_TEXT, NightStats.shareText(session, history))
+                    .putExtra(Intent.EXTRA_TEXT, NightStats.shareText(session, history, is24 = ClockFormat.is24))
                 runCatching { context.startActivity(Intent.createChooser(send, "Share night")) }
             }) { Icon(Icons.Filled.Share, "Share night as text") }
             // Deleting goes to the trash; the Results list offers Undo.
-            IconButton({ player.stop(); onDelete() }) { Icon(Icons.Filled.Delete, "Delete night") }
+            if (!recordingInProgress) IconButton({ player.stop(); onDelete() }) { Icon(Icons.Filled.Delete, "Delete night") }
         }
 
         Column(Modifier.padding(horizontal = 20.dp)) {
@@ -393,11 +405,21 @@ fun SessionDetailScreen(
                     )
                 }
             }
+            if (recordingInProgress) {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(12.dp)).background(Palette.SurfaceHigh).padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.Mic, null, tint = Palette.Moon, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Recording in progress. This night is still being added to.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
             if (justFinished) {
                 Spacer(Modifier.height(8.dp))
                 MorningSummary(
                     text = remember(session, history) { NightStats.morningSummary(session, history) },
-                    askForNotes = onSave != null && session.tags.isEmpty() && session.note.isBlank(),
+                    askForNotes = canEdit && session.tags.isEmpty() && session.note.isBlank(),
                     onAddNotes = { editing = true },
                     onDismiss = onDismissSummary,
                 )
@@ -440,9 +462,45 @@ fun SessionDetailScreen(
                 playingClip = player.playing,
                 playProgress = { player.progress },
                 onClipTap = { player.toggle(it.file, clipFile(it.file)) },
+                selection = selection,
+                onLongPressBucket = if (canEdit) { b -> selection = NightStats.episodeAt(session, b) } else null,
             )
             Spacer(Modifier.height(4.dp))
             LevelLegend(showGaps = session.gaps.isNotEmpty())
+            selection?.let { sel ->
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Palette.SurfaceHigh).padding(start = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "${clock(session.startMs + sel.fromSec * 1000L)} – ${clock(session.startMs + sel.toSec * 1000L)}",
+                        Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                    )
+                    TextButton({ selection = null }) { Text("Cancel") }
+                    TextButton({ markNotSnoring(sel); selection = null }) { Text("Not snoring") }
+                }
+            }
+            if (session.notSnoring.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(NotSnoringColor))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Marked not snoring · ${formatDuration(session.correctedSec)}",
+                        Modifier.weight(1f), color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (canEdit) {
+                        TextButton({ onSave?.invoke(session.withNotSnoring(session.notSnoring.dropLast(1))) }) { Text("Undo last") }
+                    }
+                }
+            } else if (canEdit && session.snoringSec > 0) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Not snoring? Touch and hold the timeline to correct a stretch.",
+                    color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
+                )
+            }
             if (session.clips.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -475,7 +533,7 @@ fun SessionDetailScreen(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             SectionTitle("Notes for this night", Modifier.weight(1f))
-                            if (onSave != null) {
+                            if (canEdit) {
                                 TextButton({ editing = true }) {
                                     Icon(Icons.Filled.Edit, null, Modifier.size(18.dp))
                                     Spacer(Modifier.width(6.dp))
@@ -508,7 +566,14 @@ fun SessionDetailScreen(
 
             if (session.clips.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                ClipList(session, player, clipFile, clipBytes, onDeleteClips?.let { del -> { player.stop(); del() } })
+                ClipList(
+                    session, player, clipFile, clipBytes,
+                    onDeleteClips?.takeIf { !recordingInProgress }?.let { del -> { player.stop(); del() } },
+                    onMark = if (canEdit) { clip, notSnoring ->
+                        val span = Span(clip.offsetSec, clip.offsetSec + session.bucketSec)
+                        if (notSnoring) markNotSnoring(span) else unmark(span)
+                    } else null,
+                )
             }
 
             Spacer(Modifier.height(12.dp))
@@ -618,7 +683,10 @@ fun EditNightFields(
 }
 
 @Composable
-private fun ClipList(session: Session, player: ClipPlayer, clipFile: (String) -> File, bytes: Long?, onDeleteClips: (() -> Unit)?) {
+private fun ClipList(
+    session: Session, player: ClipPlayer, clipFile: (String) -> File, bytes: Long?, onDeleteClips: (() -> Unit)?,
+    onMark: ((Clip, Boolean) -> Unit)? = null,
+) {
     var confirm by remember(session.id) { mutableStateOf(false) }
     Card {
         Column {
@@ -632,7 +700,9 @@ private fun ClipList(session: Session, player: ClipPlayer, clipFile: (String) ->
             for (clip in session.clips) {
                 val isPlaying = player.playing == clip.file
                 val at = clock(session.startMs + clip.offsetSec * 1000L)
-                val level = Level.names[clip.level.coerceIn(0, 3)]
+                val bucket = clip.offsetSec / session.bucketSec
+                val marked = session.notSnoringMask.getOrElse(bucket) { false }
+                val level = if (marked) "Not snoring" else Level.names[clip.level.coerceIn(0, 3)]
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -659,9 +729,15 @@ private fun ClipList(session: Session, player: ClipPlayer, clipFile: (String) ->
                             Text("Can't play", color = Palette.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Spacer(Modifier.weight(1f))
-                        Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(Palette.levels[clip.level.coerceIn(0, 3)]))
+                        Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(if (marked) NotSnoringColor else Palette.levels[clip.level.coerceIn(0, 3)]))
                         Spacer(Modifier.width(6.dp))
                         Text(level, color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                    // Listen, then correct: offered on the playing clip, and Undo on any marked clip.
+                    if (onMark != null && (isPlaying || marked)) {
+                        TextButton({ onMark(clip, !marked) }, Modifier.padding(start = 40.dp)) {
+                            Text(if (marked) "Undo, it was snoring" else "This isn't snoring")
+                        }
                     }
                     if (isPlaying) {
                         Spacer(Modifier.height(8.dp))

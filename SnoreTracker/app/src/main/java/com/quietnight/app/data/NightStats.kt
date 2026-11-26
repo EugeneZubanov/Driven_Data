@@ -12,6 +12,10 @@ class Columns(val levels: IntArray, val amps: IntArray, val firstCovered: Int, v
     /** Columns where every bucket had no audio. */
     var gaps: BooleanArray = BooleanArray(levels.size)
         internal set
+
+    /** Loudness of snoring the user marked as not snoring, per column; 0 where there is none. */
+    var corrected: IntArray = IntArray(levels.size)
+        internal set
 }
 
 /** A run of time within a night, as seconds from its start. */
@@ -45,6 +49,8 @@ object NightStats {
         val heard = BooleanArray(count)
         val any = BooleanArray(count)
         val mask = session.gapMask
+        val corr = IntArray(count)
+        val notSnoring = session.notSnoringMask
         for (b in from until to) {
             val t = session.startMs + b * bucketMs
             if (t < winStartMs || t >= winEndMs || t >= endMs) continue
@@ -53,12 +59,14 @@ object NightStats {
             if (c > last) last = c
             any[c] = true
             if (!mask[b]) heard[c] = true
-            val l = session.levels[b].toInt().coerceIn(0, 3)
+            val l = session.effectiveLevel(b)
             val a = session.amps[b].toInt()
+            if (notSnoring[b] && !mask[b] && session.levels[b] > 0) corr[c] = maxOf(corr[c], a)
             if (l > lv[c] || (l == lv[c] && a > amp[c])) { lv[c] = l; amp[c] = a }
         }
         return Columns(lv, amp, if (last < 0) 0 else first, last).also { cols ->
             cols.gaps = BooleanArray(count) { any[it] && !heard[it] }
+            cols.corrected = corr
         }
     }
 
@@ -100,7 +108,7 @@ object NightStats {
     fun longestQuiet(session: Session): Stretch? {
         var best = -1; var bestLen = 0; var run = 0
         for (i in session.levels.indices) {
-            if (session.levels[i].toInt() == Level.QUIET && !session.gapMask[i]) {
+            if (session.effectiveLevel(i) == Level.QUIET && !session.gapMask[i]) {
                 run++
                 if (run > bestLen) { bestLen = run; best = i - run + 1 }
             } else run = 0
@@ -113,13 +121,13 @@ object NightStats {
      * buckets within [withinSec], so a single cough does not count. Seconds from the start.
      */
     fun snoringStartSec(session: Session, withinSec: Int = 120, minSnores: Int = 3): Int? {
-        val lv = session.levels
+        val n = session.levels.size
         val win = (withinSec / session.bucketSec).coerceAtLeast(1)
         val need = minSnores.coerceAtMost(win)
-        for (i in lv.indices) {
-            if (lv[i].toInt() == Level.QUIET) continue
+        for (i in 0 until n) {
+            if (session.effectiveLevel(i) == Level.QUIET) continue
             var count = 0
-            for (j in i until minOf(lv.size, i + win)) if (lv[j].toInt() != Level.QUIET) count++
+            for (j in i until minOf(n, i + win)) if (session.effectiveLevel(j) != Level.QUIET) count++
             if (count >= need) return i * session.bucketSec
         }
         return null
@@ -147,7 +155,7 @@ object NightStats {
         val bucketMs = session.bucketSec * 1000L
         var h = 0
         for (b in session.levels.indices) {
-            val l = session.levels[b].toInt().coerceIn(0, 3)
+            val l = session.effectiveLevel(b)
             if (l == Level.QUIET) continue
             val t = session.startMs + b * bucketMs
             while (h + 1 < hours.size && t >= hours[h + 1]) h++
@@ -156,6 +164,25 @@ object NightStats {
         var best = -1
         for (i in weight.indices) if (weight[i] > 0f && (best < 0 || weight[i] > weight[best])) best = i
         return if (best < 0) null else hours[best]
+    }
+
+    /**
+     * The snoring episode around bucket [bucket]: the run of snoring buckets that contains it (or
+     * starts within [reachSec] of it), joined across quiet pauses of up to [pauseSec]. In seconds.
+     */
+    fun episodeAt(session: Session, bucket: Int, pauseSec: Int = 30, reachSec: Int = 30): Span? {
+        val n = session.levels.size
+        if (n == 0) return null
+        val bs = session.bucketSec
+        fun snoring(i: Int) = i in 0 until n && session.effectiveLevel(i) != Level.QUIET
+        val reach = reachSec / bs
+        val seed = (0..reach).asSequence().flatMap { d -> sequenceOf(bucket - d, bucket + d) }.firstOrNull { snoring(it) } ?: return null
+        val pause = pauseSec / bs
+        var lo = seed
+        while (true) { val p = (1..pause + 1).firstOrNull { snoring(lo - it) } ?: break; lo -= p }
+        var hi = seed
+        while (true) { val p = (1..pause + 1).firstOrNull { snoring(hi + it) } ?: break; hi += p }
+        return Span(lo * bs, (hi + 1) * bs)
     }
 
     /** Rounded average score, or 0 for no nights. */
@@ -210,8 +237,10 @@ object NightStats {
     }
 
     /** Plain-text summary of a night for the share sheet. */
-    fun shareText(session: Session, all: List<Session>, tz: TimeZone = TimeZone.getDefault(), locale: Locale = Locale.getDefault()): String {
-        fun f(p: String, ms: Long) = SimpleDateFormat(p, locale).apply { timeZone = tz }.format(Date(ms))
+    fun shareText(
+        session: Session, all: List<Session>, tz: TimeZone = TimeZone.getDefault(), locale: Locale = Locale.getDefault(), is24: Boolean = true,
+    ): String {
+        fun f(p: String, ms: Long) = SimpleDateFormat(if (p == "HH:mm" && !is24) "h:mm a" else p, locale).apply { timeZone = tz }.format(Date(ms))
         val lines = ArrayList<String>()
         lines += "Night of ${f("EEE d MMM", session.startMs)}, ${f("HH:mm", session.startMs)}–${f("HH:mm", session.endMs)}"
         lines += "Snore score: ${session.score}"
