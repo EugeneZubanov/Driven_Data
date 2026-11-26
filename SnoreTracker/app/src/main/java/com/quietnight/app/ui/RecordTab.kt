@@ -94,6 +94,13 @@ fun RecordTab(
             if (needed.isEmpty()) RecordingService.start(context, testRun = true) else testRunPermissions.launch(needed.toTypedArray())
         },
         manufacturer = Build.MANUFACTURER ?: "",
+        onKeepScreenOn = { on ->
+            // MainActivity holds the screen on while recording on this tab; let it go after a long dim.
+            context.findActivity()?.window?.let { w ->
+                if (on) w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                else w.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        },
         onDimmed = { dim ->
             RecordingService.uiDimmed = dim
             context.findActivity()?.window?.let { w -> w.attributes = w.attributes.also { it.screenBrightness = if (dim) 0.01f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } } },

@@ -65,15 +65,9 @@ object MicCheck {
             var audio: AudioRecord? = null
             var error: String? = null
             try {
-                val rate = RecordingService.SAMPLE_RATE
-                val minBuf = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-                val am = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                val source = if (am.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) == "true")
-                    MediaRecorder.AudioSource.UNPROCESSED else MediaRecorder.AudioSource.VOICE_RECOGNITION
-                audio = AudioRecord(source, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, rate))
-                check(audio.state == AudioRecord.STATE_INITIALIZED)
-                audio.startRecording()
-                check(audio.recordingState == AudioRecord.RECORDSTATE_RECORDING)
+                val (rate, opened) = firstWorkingRate(CAPTURE_RATES) { r -> openRawAudioRecord(app, r)?.let { r to it } }
+                    ?: error("no microphone")
+                audio = opened
                 val buf = ShortArray(rate / 10)
                 val until = System.currentTimeMillis() + DURATION_MS
                 while (!stopRequested && System.currentTimeMillis() < until) {

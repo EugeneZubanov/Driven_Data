@@ -39,6 +39,12 @@ object RecordingPolicy {
         else -> 200L
     }
 
+    /** After this long in the dimmed night view the screen may turn off; recording carries on. */
+    const val SCREEN_OFF_AFTER_DIM_MS = 10 * 60_000L
+
+    /** Whether the Record tab should hold the screen on: yes unless it has sat dimmed for a while. */
+    fun keepScreenOn(dimmed: Boolean, dimmedForMs: Long): Boolean = !dimmed || dimmedForMs < SCREEN_OFF_AFTER_DIM_MS
+
     /** Gaps without audio shorter than this are not listed on the night (the time still counts). */
     const val MIN_GAP_MS = 10_000L
 

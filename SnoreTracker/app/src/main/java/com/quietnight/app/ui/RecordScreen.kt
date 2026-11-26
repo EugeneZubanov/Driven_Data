@@ -70,6 +70,7 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import com.quietnight.app.audio.MicCheckState
+import com.quietnight.app.audio.RecordingPolicy
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -102,6 +103,8 @@ fun RecordScreen(
     onMicCheck: () -> Unit = {},
     /** Called when the recording view dims or wakes, so the window brightness can follow. */
     onDimmed: (Boolean) -> Unit = {},
+    /** Called with false once the night view has been dimmed long enough for the screen to turn off. */
+    onKeepScreenOn: (Boolean) -> Unit = {},
     dimAfterMs: Long = 30_000,
     wake: WakeSetting = WakeSetting(),
     onWake: (WakeSetting) -> Unit = {},
@@ -110,7 +113,7 @@ fun RecordScreen(
     /** Build.MANUFACTURER, for phone-specific battery steps. */
     manufacturer: String = "",
 ) {
-    if (rec.recording) RecordingView(rec, onStop, nowMs, onDimmed, dimAfterMs)
+    if (rec.recording) RecordingView(rec, onStop, nowMs, onDimmed, dimAfterMs, onKeepScreenOn)
     else IdleView(
         prefs, rec, lastSession, onStart, onPrefs, onOpenSession,
         batteryExempt, onFixBattery, startWarnings, onDismissNotice, mic, onMicCheck,
@@ -347,6 +350,7 @@ private fun RecordingView(
     nowMs: () -> Long,
     onDimmed: (Boolean) -> Unit,
     dimAfterMs: Long,
+    onKeepScreenOn: (Boolean) -> Unit = {},
 ) {
     var now by remember { mutableLongStateOf(nowMs()) }
     var lastTouch by remember { mutableLongStateOf(nowMs()) }
@@ -355,6 +359,8 @@ private fun RecordingView(
     }
     val dimmed = now - lastTouch >= dimAfterMs
     LaunchedEffect(dimmed) { onDimmed(dimmed) }
+    val keepOn = RecordingPolicy.keepScreenOn(dimmed, now - lastTouch - dimAfterMs)
+    LaunchedEffect(keepOn) { onKeepScreenOn(keepOn) }
     DisposableEffect(Unit) { onDispose { onDimmed(false) } }
 
     val elapsed = ((now - rec.startMs) / 1000).toInt().coerceAtLeast(0)

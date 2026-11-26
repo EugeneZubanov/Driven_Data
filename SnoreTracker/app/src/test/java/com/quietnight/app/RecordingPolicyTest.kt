@@ -152,6 +152,21 @@ class RecordingPolicyTest {
         assertEquals("Nasal strip, Side sleeping +1", com.quietnight.app.ui.tagSummary(setOf("f:Alcohol", "r:Side sleeping", "r:Nasal strip")))
     }
 
+    @Test fun captureRateFallsBackInOrder() {
+        assertEquals(listOf(16000, 48000, 44100), com.quietnight.app.audio.CAPTURE_RATES)
+        val tried = ArrayList<Int>()
+        val got = com.quietnight.app.audio.firstWorkingRate(com.quietnight.app.audio.CAPTURE_RATES) { r -> tried += r; if (r == 44100) "mic@$r" else null }
+        assertEquals("mic@44100", got)
+        assertEquals(listOf(16000, 48000, 44100), tried)
+        assertNull(com.quietnight.app.audio.firstWorkingRate(listOf(16000)) { null })
+    }
+
+    @Test fun screenMayTurnOffAfterTenMinutesDimmed() {
+        assertTrue(RecordingPolicy.keepScreenOn(dimmed = false, dimmedForMs = 99 * 60_000L))
+        assertTrue(RecordingPolicy.keepScreenOn(dimmed = true, dimmedForMs = 9 * 60_000L))
+        assertFalse(RecordingPolicy.keepScreenOn(dimmed = true, dimmedForMs = 10 * 60_000L))
+    }
+
     @Test fun serviceLifecycle() {
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = false))
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = true))

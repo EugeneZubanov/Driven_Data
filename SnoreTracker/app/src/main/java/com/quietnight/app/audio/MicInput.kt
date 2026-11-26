@@ -11,6 +11,8 @@ import android.os.SystemClock
 
 /** An open microphone. Lets tests drive [RecordingService] with simulated audio. */
 interface MicInput {
+    /** Samples per second this input actually delivers. */
+    val sampleRate: Int
     /** Blocking read like [AudioRecord.read]: samples read, 0, or a negative error code. */
     fun read(buf: ShortArray, size: Int): Int
     /** True when the system is feeding silence because a call or another app has the microphone. */
@@ -20,7 +22,8 @@ interface MicInput {
 
 /** The service's links to the outside world; tests swap these for fakes. */
 object RecordingEnv {
-    @Volatile var openMic: (Context) -> MicInput? = ::openAudioRecord
+    /** Opens the microphone at the first of the given sample rates that works. */
+    @Volatile var openMic: (Context, List<Int>) -> MicInput? = ::openAudioRecord
     @Volatile var elapsedMs: () -> Long = SystemClock::elapsedRealtime
     @Volatile var wallMs: () -> Long = System::currentTimeMillis
     @Volatile var sleep: (Long) -> Unit = { Thread.sleep(it) }
@@ -35,11 +38,23 @@ object RecordingEnv {
     }
 }
 
-@SuppressLint("MissingPermission") // the service checks RECORD_AUDIO before recording
-private fun openAudioRecord(context: Context): MicInput? {
-    val rate = RecordingService.SAMPLE_RATE
+/** Capture rates to try, best first. Only 44.1 kHz is guaranteed on every Android device. */
+val CAPTURE_RATES = listOf(16000, 48000, 44100)
+
+/** The first of [rates] for which [open] gives something, with that result. */
+fun <T : Any> firstWorkingRate(rates: List<Int>, open: (Int) -> T?): T? {
+    for (r in rates) open(r)?.let { return it }
+    return null
+}
+
+/**
+ * A started AudioRecord at [rate] from the raw microphone if the phone has one, or null if this
+ * rate cannot be used. Automatic gain and noise suppression would hide quiet snoring.
+ */
+@SuppressLint("MissingPermission") // callers check RECORD_AUDIO first
+fun openRawAudioRecord(context: Context, rate: Int): AudioRecord? {
     val minBuf = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-    // Prefer the raw microphone: automatic gain and noise suppression would hide quiet snoring.
+    if (minBuf <= 0) return null // ERROR or ERROR_BAD_VALUE: rate not supported
     val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     val source = if (am.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) == "true")
         MediaRecorder.AudioSource.UNPROCESSED else MediaRecorder.AudioSource.VOICE_RECOGNITION
@@ -55,13 +70,20 @@ private fun openAudioRecord(context: Context): MicInput? {
         audio.release(); return null
     }
     if (audio.recordingState != AudioRecord.RECORDSTATE_RECORDING) { audio.release(); return null }
-    return object : MicInput {
-        override fun read(buf: ShortArray, size: Int) = audio.read(buf, 0, size)
-        override fun silenced() =
-            Build.VERSION.SDK_INT >= 29 && runCatching { audio.activeRecordingConfiguration?.isClientSilenced == true }.getOrDefault(false)
-        override fun close() {
-            runCatching { audio.stop() }
-            runCatching { audio.release() }
+    return audio
+}
+
+private fun openAudioRecord(context: Context, rates: List<Int>): MicInput? = firstWorkingRate(rates) { rate ->
+    openRawAudioRecord(context, rate)?.let { audio ->
+        object : MicInput {
+            override val sampleRate = rate
+            override fun read(buf: ShortArray, size: Int) = audio.read(buf, 0, size)
+            override fun silenced() =
+                Build.VERSION.SDK_INT >= 29 && runCatching { audio.activeRecordingConfiguration?.isClientSilenced == true }.getOrDefault(false)
+            override fun close() {
+                runCatching { audio.stop() }
+                runCatching { audio.release() }
+            }
         }
     }
 }
