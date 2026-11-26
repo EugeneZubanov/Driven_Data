@@ -41,6 +41,7 @@ class NightRecorder(
     var eventCount = 0
         private set
 
+    private val thresholdDb = thresholdDb
     private val detector = SnoreDetector(sampleRate, thresholdDb) { onSnore(it) }.also { d -> d.onOther = { onOther(it) } }
     val currentDbAboveFloor: Float get() = if (listening) detector.currentDbAboveFloor else 0f
     val listening: Boolean get() = totalSamples >= delaySamples
@@ -169,7 +170,15 @@ class NightRecorder(
      */
     fun finish() {
         decideClipsUpTo(((totalSamples - 1) / bucketSamples).toInt())
+        val dir = clipDir ?: return
+        runCatching {
+            dir.mkdirs()
+            File(dir, NightDiagnostics.FILE_NAME).writeText(diagnostics().toJson().toString())
+        }
     }
+
+    /** What the detector saw so far tonight; written to the clip folder by [finish]. */
+    fun diagnostics(): NightDiagnostics = NightDiagnostics.from(detector.stats, sampleRate, thresholdDb)
 
     private fun decideClipsUpTo(last: Int) {
         if (ring.isEmpty()) return

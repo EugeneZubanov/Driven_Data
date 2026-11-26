@@ -99,3 +99,12 @@ three rates and print a hit-rate table (`app/build/reports/detector-corpus.txt`)
 spots: creaky talking can still pass as snoring now and then, two people snoring together are
 merged, very quiet snoring on low-gain phones is missed at low sensitivity, and phones with heavy
 noise suppression may report levels too high.
+
+To check the detector against real recordings (for example clips someone shares), put 16-bit PCM
+`.wav` files in a folder and run:
+
+    ./gradlew :app:testDebugUnitTest --tests '*WavReplayTest*' -Pwavs=/path/to/folder
+
+(or set `QN_WAVS=/path/to/folder`). It prints, and writes to `app/build/reports/wav-replay.txt`,
+the snores found in each file with their levels, the 10 s timeline and the detector's diagnostics.
+Each recorded night also keeps those diagnostics in `detector.json` in its clip folder.

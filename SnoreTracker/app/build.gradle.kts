@@ -58,6 +58,8 @@ android {
                 it.systemProperty("robolectric.dependency.repo.url", "https://maven-central.storage-download.googleapis.com/maven2")
                 // The detector corpus generates scenes on several threads; 512 MB (the default) is too small.
                 it.maxHeapSize = "2g"
+                // WAV replay harness: ./gradlew :app:testDebugUnitTest --tests '*WavReplayTest*' -Pwavs=/path/to/wavs
+                project.findProperty("wavs")?.let { w -> it.systemProperty("wavs", w.toString()) }
             }
         }
     }
