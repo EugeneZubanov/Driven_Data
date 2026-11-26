@@ -242,6 +242,20 @@ class ResultsLogicTest {
         assertEquals(0f, p.progress)
     }
 
+    @Test fun clipPlayerStepsThroughQueue() {
+        val p = com.quietnight.app.ui.ClipPlayer()
+        val files = listOf("a.wav", "b.wav", "c.wav").map { it to File(tmp.root, it) } // missing: no audio needed
+        p.setQueue(files)
+        p.next()
+        assertEquals("a.wav", p.current)
+        p.next(); p.next(); p.next() // stops at the end
+        assertEquals("c.wav", p.current)
+        p.previous()
+        assertEquals("b.wav", p.current)
+        p.playCurrent()
+        assertEquals("b.wav", p.current)
+    }
+
     @Test fun editedSessionReplacesOnSave() {
         val repo = SessionRepository(tmp.root)
         val s = night("1", "a")

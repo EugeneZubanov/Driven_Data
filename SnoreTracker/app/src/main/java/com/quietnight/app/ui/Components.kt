@@ -29,7 +29,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -45,6 +48,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.draw.drawWithCache
@@ -119,7 +123,7 @@ fun ScoreDial(score: Int, shares: FloatArray, size: Dp, modifier: Modifier = Mod
 }
 
 @Composable
-fun LevelLegend(modifier: Modifier = Modifier) {
+fun LevelLegend(modifier: Modifier = Modifier, showGaps: Boolean = false) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         for (i in 0..3) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -127,6 +131,27 @@ fun LevelLegend(modifier: Modifier = Modifier) {
                 Spacer(Modifier.width(6.dp))
                 Text(Level.names[i], style = MaterialTheme.typography.bodySmall, color = Palette.Muted)
             }
+        }
+        if (showGaps) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Canvas(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp))) { drawGap(0f, 0f, size.width, size.height, 3.dp.toPx()) }
+                Spacer(Modifier.width(6.dp))
+                Text("No sound", style = MaterialTheme.typography.bodySmall, color = Palette.Muted)
+            }
+        }
+    }
+}
+
+/** Neutral hatched area for time with no audio, so it does not read as quiet sleep. */
+fun DrawScope.drawGap(left: Float, top: Float, right: Float, bottom: Float, spacing: Float) {
+    if (right <= left) return
+    drawRect(Palette.Outline.copy(alpha = 0.35f), Offset(left, top), Size(right - left, bottom - top))
+    clipRect(left, top, right, bottom) {
+        val h = bottom - top
+        var x = left - h
+        while (x < right) {
+            drawLine(Palette.Muted.copy(alpha = 0.45f), Offset(x, bottom), Offset(x + h, top), 1f)
+            x += spacing
         }
     }
 }
@@ -144,9 +169,15 @@ fun MiniTimeline(session: Session, modifier: Modifier = Modifier) {
             val base = size.height * 0.3f
             onDrawBehind {
                 drawRoundRect(Palette.Quiet, Offset(0f, size.height - base), Size(size.width, base), CornerRadius(3.dp.toPx()))
+                for (g in session.gaps) {
+                    val span = (session.endMs - session.startMs).coerceAtLeast(1).toFloat()
+                    val l = (g.fromSec * 1000f / span * size.width).coerceIn(0f, size.width)
+                    val r = (g.toSec * 1000f / span * size.width).coerceIn(0f, size.width)
+                    drawGap(l, 0f, r, size.height, 4.dp.toPx())
+                }
                 for (c in 0 until count) {
                     val l = cols.levels[c]
-                    if (l == 0) continue
+                    if (l == 0 || cols.gaps[c]) continue
                     val h = base + (size.height - base) * ampFraction(cols.amps[c])
                     drawRect(Palette.levels[l], Offset(c * w, size.height - h), Size((w - 2f).coerceAtLeast(1f), h))
                 }
@@ -162,6 +193,8 @@ private const val CLIP_MS = 10_000L
 private fun timelineDescription(session: Session): String = buildString {
     append("Timeline from ${clock(session.startMs)} to ${clock(session.endMs)}. ")
     append("Snoring ${formatDuration(session.snoringSec)}.")
+    if (session.gapSec > 0) append(" No sound for ${formatDuration(session.gapSec)}.")
+    if (session.interruptedAtMs > 0) append(" Cut short at ${clock(session.interruptedAtMs)}.")
     NightStats.loudestHour(session)?.let { append(" Loudest hour from ${clock(it)}.") }
     if (session.clips.isNotEmpty()) append(" ${session.clips.size} saved clips, listed below.")
 }
@@ -190,6 +223,13 @@ fun TimelineChart(
         session.clips.filter { session.startMs + it.offsetSec * 1000L in winStart until winEnd }
     }
     val currentOnClipTap by rememberUpdatedState(onClipTap)
+    // Keep the playing clip on screen: if it is outside the zoomed hour, move to its hour.
+    LaunchedEffect(playingClip) {
+        val clip = session.clips.firstOrNull { it.file == playingClip } ?: return@LaunchedEffect
+        val z = zoom ?: return@LaunchedEffect
+        val t = session.startMs + clip.offsetSec * 1000L
+        if (t !in z until z + HOUR_MS) zoom = hours.lastOrNull { it <= t } ?: z
+    }
 
     Column(modifier) {
         Row(Modifier.fillMaxWidth().height(32.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -212,13 +252,13 @@ fun TimelineChart(
                         onPress = { touchX = it.x; tryAwaitRelease(); touchX = null },
                         onTap = { pos ->
                             val tap = currentOnClipTap ?: return@detectTapGestures
-                            if (pos.y > 30.dp.toPx()) return@detectTapGestures
+                            if (pos.y > 40.dp.toPx()) return@detectTapGestures
                             val span = (winEnd - winStart).toFloat()
                             clips.minByOrNull { c ->
                                 abs((session.startMs + c.offsetSec * 1000L + CLIP_MS / 2 - winStart) / span * size.width - pos.x)
                             }?.let { c ->
                                 val x = (session.startMs + c.offsetSec * 1000L + CLIP_MS / 2 - winStart) / span * size.width
-                                if (abs(x - pos.x) < 24.dp.toPx()) tap(c)
+                                if (abs(x - pos.x) < 20.dp.toPx()) tap(c) // 40dp wide target
                             }
                         },
                     )
@@ -231,7 +271,7 @@ fun TimelineChart(
                     ) { change, _ -> touchX = change.position.x }
                 }
                 .drawWithCache {
-                    val band = if (session.clips.isNotEmpty()) 18.dp.toPx() else 0f
+                    val band = if (session.clips.isNotEmpty()) 22.dp.toPx() else 0f
                     val axisH = 20.dp.toPx()
                     val plotTop = band
                     val plotH = size.height - axisH - band
@@ -277,10 +317,17 @@ fun TimelineChart(
                         }
                         for (c in 0 until count) {
                             val l = cols.levels[c]
-                            if (l == 0) continue
+                            if (l == 0 || cols.gaps[c]) continue
                             val h = base + (plotH - base) * ampFraction(cols.amps[c])
                             val bw = (w - 2f).coerceAtLeast(1f) // 2px gap between neighbouring bars
                             drawRoundRect(Palette.levels[l], Offset(c * w, plotBottom - h), Size(bw, h), CornerRadius(bw / 2.5f))
+                        }
+
+                        // stretches with no audio
+                        for (g in session.gaps) {
+                            val l = xOf(session.startMs + g.fromSec * 1000L).coerceIn(0f, size.width)
+                            val r = xOf(session.startMs + g.toSec * 1000L).coerceIn(0f, size.width)
+                            drawGap(l, plotTop, r, plotBottom, 6.dp.toPx())
                         }
 
                         for ((x, left, layout) in labels) {
@@ -318,7 +365,8 @@ fun TimelineChart(
                             val at = winStart + (span * (x / size.width)).toLong()
                             if (at < session.startMs || at > session.endMs) return@let
                             drawLine(Palette.Text.copy(alpha = 0.7f), Offset(x, plotTop), Offset(x, plotBottom), 1.5f)
-                            val layout = measurer.measure("${clock(at)} · ${Level.names[cols.levels[c]]}", readoutStyle)
+                            val what = if (cols.gaps[c]) "No sound" else Level.names[cols.levels[c]]
+                            val layout = measurer.measure("${clock(at)} · $what", readoutStyle)
                             val pad = 6.dp.toPx()
                             val bw = layout.size.width + pad * 2
                             val bx = (x - bw / 2).coerceIn(0f, size.width - bw)
@@ -342,6 +390,7 @@ fun TimelineChart(
                     Text(
                         clock(h),
                         Modifier
+                            .minimumInteractiveComponentSize()
                             .clip(RoundedCornerShape(50))
                             .background(if (selected) Palette.Moon else Palette.SurfaceHigh)
                             .clickable(onClickLabel = if (selected) "Show whole night" else "Zoom to this hour") {

@@ -135,6 +135,48 @@ class ScreenshotTest {
         return Session(s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags, clips, s.demo, note = "Went to bed late after a dinner out.")
     }
 
+    /** Same as [shot] with text 30% larger, to check for clipping. */
+    private fun bigShot(name: String, content: @Composable () -> Unit) {
+        compose.setContent {
+            val d = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, 1.3f),
+            ) {
+                QuietNightTheme { Box(Modifier.fillMaxSize().background(Palette.Background)) { content() } }
+            }
+        }
+        compose.onRoot().captureRoboImage("build/shots/$name.png")
+    }
+
+    /** A night with two stretches of no sound that was cut short. */
+    private fun withProblems(): Session {
+        val s = withClips()
+        return Session(
+            s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags, s.clips, s.demo,
+            interruptedAtMs = s.endMs,
+            gaps = listOf(com.quietnight.app.data.Gap(5400, 7200), com.quietnight.app.data.Gap(20000, 20900)),
+            note = s.note,
+        )
+    }
+
+    @Test fun detailProblems() {
+        val s = withProblems()
+        val other = sessions.first { it.id != s.id }
+        shot("detail-problems") {
+            SessionDetailScreen(s, {}, {}, null, {}, { File(it) }, history = sessions, onSave = {}, initialCompareId = other.id)
+        }
+        compose.onNodeWithText("Longest quiet").performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/detail-compare.png")
+    }
+
+    @Test fun detailLargeText() {
+        bigShot("detail-large-text") { SessionDetailScreen(withProblems(), {}, {}, null, {}, { File(it) }, history = sessions, onSave = {}) }
+        compose.onAllNodesWithContentDescription("Play clip from", substring = true, useUnmergedTree = true).onLast().performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/detail-large-text-clips.png")
+    }
+
+    @Test fun resultsLargeText() = bigShot("results-large-text") { ResultsListScreen(sessions, nowMs = now) {} }
+
     @Test fun detailClips() {
         val s = withClips()
         val player = ClipPlayer().apply { showForPreview(s.clips[1].file, 0.4f) }

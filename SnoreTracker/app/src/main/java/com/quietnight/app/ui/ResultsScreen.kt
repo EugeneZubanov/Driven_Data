@@ -29,7 +29,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
@@ -53,6 +55,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -109,6 +112,9 @@ fun ResultsListScreen(
     onDelete: (String) -> Unit = {},
     onUndoDelete: (String) -> Unit = {},
     nowMs: Long = System.currentTimeMillis(),
+    /** A night just deleted from its detail screen, to offer Undo for. */
+    deletedNotice: Session? = null,
+    onDeletedNoticeShown: () -> Unit = {},
     onOpen: (String) -> Unit,
 ) {
     val snackbar = remember { SnackbarHostState() }
@@ -117,13 +123,16 @@ fun ResultsListScreen(
     val tags = remember(sessions) { NightStats.usedTags(sessions) }
     val filter = chosen?.takeIf { it in tags }
 
-    val delete: (Session) -> Unit = { s ->
-        onDelete(s.id)
+    val offerUndo: (Session) -> Unit = { s ->
         scope.launch {
             snackbar.currentSnackbarData?.dismiss()
             val r = snackbar.showSnackbar("Night of ${fmt("EEE d MMM", s.endMs)} deleted", actionLabel = "Undo", duration = SnackbarDuration.Long)
             if (r == SnackbarResult.ActionPerformed) onUndoDelete(s.id)
         }
+    }
+    val delete: (Session) -> Unit = { s -> onDelete(s.id); offerUndo(s) }
+    LaunchedEffect(deletedNotice) {
+        deletedNotice?.let { onDeletedNoticeShown(); offerUndo(it) }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -232,6 +241,7 @@ private fun NightRow(s: Session, onClick: () -> Unit) {
                 Text(fmt("EEE d", s.endMs), fontWeight = FontWeight.SemiBold)
                 Text(formatDuration(s.durationSec), color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
                 if (s.demo) Text("Sample", color = Palette.Muted, style = MaterialTheme.typography.labelSmall)
+                if (s.interruptedAtMs > 0) Text("Cut short", color = Palette.Loud, style = MaterialTheme.typography.labelSmall)
             }
             MiniTimeline(s, Modifier.weight(1f))
             Spacer(Modifier.width(12.dp))
@@ -279,9 +289,13 @@ fun SessionDetailScreen(
     onSave: ((Session) -> Unit)? = null,
     customTags: Set<String> = emptySet(),
     player: ClipPlayer = rememberClipPlayer(session.id),
+    initialCompareId: String? = null,
 ) {
-    var confirmDelete by remember { mutableStateOf(false) }
+    player.setQueue(session.clips.map { it.file to clipFile(it.file) })
     var editing by remember(session.id) { mutableStateOf(false) }
+    var picking by remember(session.id) { mutableStateOf(false) }
+    var compareId by rememberSaveable(session.id) { mutableStateOf(initialCompareId) }
+    val compareWith = history.firstOrNull { it.id == compareId && it.id != session.id }
     val context = LocalContext.current
     val comparison = remember(session, history) { NightStats.compareWithRecent(session, history) }
     val onset = remember(session) { NightStats.snoringStartSec(session) }
@@ -302,12 +316,26 @@ fun SessionDetailScreen(
                     .putExtra(Intent.EXTRA_TEXT, NightStats.shareText(session, history))
                 runCatching { context.startActivity(Intent.createChooser(send, "Share night")) }
             }) { Icon(Icons.Filled.Share, "Share night as text") }
-            IconButton({ confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete night") }
+            // Deleting goes to the trash; the Results list offers Undo.
+            IconButton({ player.stop(); onDelete() }) { Icon(Icons.Filled.Delete, "Delete night") }
         }
 
         Column(Modifier.padding(horizontal = 20.dp)) {
             if (session.demo) {
                 Text("Sample night, not a real recording", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
+            }
+            if (session.interruptedAtMs > 0) {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(12.dp)).background(Palette.SurfaceHigh).padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.Warning, null, tint = Palette.Loud, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "Cut short at ${clock(session.interruptedAtMs)}. The phone stopped the recording early.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
             TimelineChart(
                 session,
@@ -316,7 +344,7 @@ fun SessionDetailScreen(
                 onClipTap = { player.toggle(it.file, clipFile(it.file)) },
             )
             Spacer(Modifier.height(10.dp))
-            LevelLegend()
+            LevelLegend(showGaps = session.gaps.isNotEmpty())
             if (session.clips.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -324,6 +352,8 @@ fun SessionDetailScreen(
                     Spacer(Modifier.width(6.dp))
                     Text("Saved clip, tap to play", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
                 }
+                Spacer(Modifier.height(4.dp))
+                ClipControls(session, player)
             }
 
             Spacer(Modifier.height(20.dp))
@@ -366,6 +396,7 @@ fun SessionDetailScreen(
                     if (onset != null) StatRow("Snoring started", clock(session.startMs + onset * 1000L))
                     if (quiet != null) StatRow("Longest quiet stretch", formatDuration(quiet.lengthSec))
                     if (loudest != null) StatRow("Loudest hour", "${clock(loudest)} – ${clock(loudest + 3_600_000L)}")
+                    if (session.gapSec > 0) StatRow("No sound for", formatDuration(session.gapSec))
                 }
             }
 
@@ -410,6 +441,17 @@ fun SessionDetailScreen(
                 Spacer(Modifier.height(12.dp))
                 ClipList(session, player, clipFile)
             }
+
+            Spacer(Modifier.height(12.dp))
+            if (compareWith != null) {
+                CompareCard(session, compareWith, onChange = { picking = true }, onClose = { compareId = null })
+            } else if (history.any { it.id != session.id }) {
+                TextButton({ picking = true }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.CompareArrows, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Compare with another night")
+                }
+            }
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -421,14 +463,11 @@ fun SessionDetailScreen(
         }
     }
 
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete this night?") },
-            text = { Text("The timeline and its audio clips will be removed.") },
-            confirmButton = { TextButton({ confirmDelete = false; player.stop(); onDelete() }) { Text("Delete") } },
-            dismissButton = { TextButton({ confirmDelete = false }) { Text("Cancel") } },
-        )
+    if (picking) {
+        PickNightDialog(history.filter { it.id != session.id }, onDismiss = { picking = false }) {
+            picking = false
+            compareId = it
+        }
     }
 }
 
