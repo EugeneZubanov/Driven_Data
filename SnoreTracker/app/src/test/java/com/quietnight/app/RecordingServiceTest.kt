@@ -165,6 +165,7 @@ class RecordingServiceTest {
     @Test fun fullNightAudioIsKeptInSegmentsAroundACall() {
         com.quietnight.app.audio.NightAudioPref.set(app, true)
         RecordingEnv.encoder = com.quietnight.app.audio.EncoderFactory { f, _ -> FakeEncoder(f) }
+        RecordingEnv.audioSupported = { true }
         takenSec = 180.0..300.0
         stops += 420.0
         startNight()
@@ -183,6 +184,7 @@ class RecordingServiceTest {
     @Test fun fullNightAudioTurnsOffWhenStorageRunsLow() {
         com.quietnight.app.audio.NightAudioPref.set(app, true)
         RecordingEnv.encoder = com.quietnight.app.audio.EncoderFactory { f, _ -> FakeEncoder(f) }
+        RecordingEnv.audioSupported = { true }
         RecordingEnv.freeBytes = { if (now() < 120) 5_000_000_000L else 10_000_000L }
         stops += 300.0
         startNight()
@@ -195,6 +197,19 @@ class RecordingServiceTest {
         assertEquals(1, segs.size)
         assertTrue("seg ${segs[0]}", segs[0].durationMs in 119_000L..123_000L)
         assertTrue(state.notice!!.contains("low on storage"))
+    }
+
+    @Test fun fullNightAudioOnAPhoneWithoutAnEncoderIsSkippedWithANote() {
+        com.quietnight.app.audio.NightAudioPref.set(app, true)
+        RecordingEnv.audioSupported = { false }
+        stops += 90.0
+        startNight()
+        awaitNightEnd()
+        com.quietnight.app.audio.NightAudioPref.set(app, false)
+        val state = RecordingService.state.value
+        assertTrue(saved(state.finishedId).durationSec >= 89)
+        assertTrue(com.quietnight.app.audio.SegmentIndex.read(app.repository.clipDir(state.finishedId!!)).isEmpty())
+        assertTrue(state.notice!!.contains("Full-night audio"))
     }
 
     @Test fun lowBatteryStopsAndSavesWithANote() {

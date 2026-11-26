@@ -55,6 +55,15 @@ object RecordingPolicy {
         WAKE_TIME("Good morning. Recording stopped at your wake-up time and the night was saved."),
     }
 
+    /** A time of day as the phone shows it: "23:05" with the 24-hour setting, "11:05 PM" without. */
+    fun clockText(ms: Long, is24Hour: Boolean, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): String =
+        timeOfDay(java.time.Instant.ofEpochMilli(ms).atZone(zone).toLocalTime(), is24Hour)
+
+    fun timeOfDay(hour: Int, minute: Int, is24Hour: Boolean): String = timeOfDay(java.time.LocalTime.of(hour, minute), is24Hour)
+
+    private fun timeOfDay(t: java.time.LocalTime, is24Hour: Boolean): String =
+        t.format(java.time.format.DateTimeFormatter.ofPattern(if (is24Hour) "HH:mm" else "h:mm a", java.util.Locale.getDefault()))
+
     /** Length of the optional short test run. */
     const val TEST_RUN_MS = 5 * 60_000L
 

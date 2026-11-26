@@ -229,6 +229,13 @@ class ScreenshotTest {
         compose.onRoot().captureRoboImage("build/shots/record-full-audio.png")
     }
 
+    @Test @Config(qualifiers = "w360dp-h740dp-xhdpi") fun recording12Hour() = shot("recording-12h") {
+        RecordScreen(
+            Prefs(), RecState(recording = true, startMs = now - 2 * 3600_000L, listening = true, wakeAtMs = now + 5 * 3600_000L),
+            null, {}, {}, {}, {}, nowMs = { now }, is24Hour = false,
+        )
+    }
+
     @Test fun recordingDimmed() = shot("recording-dimmed") {
         RecordScreen(
             Prefs(), RecState(recording = true, startMs = now - 3 * 3600_000L, listening = true),

@@ -14,6 +14,8 @@ import android.content.pm.ServiceInfo
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
+import android.text.format.DateFormat
+import androidx.core.content.edit
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
@@ -24,7 +26,6 @@ import com.quietnight.app.MainActivity
 import com.quietnight.app.QuietNightApp
 import com.quietnight.app.R
 import com.quietnight.app.data.Session
-import com.quietnight.app.ui.clock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.concurrent.thread
@@ -166,6 +167,7 @@ class RecordingService : Service() {
         val testRun = testRunMs > 0
         val delayMs = if (testRun) 0L else prefs.delayMin * 60_000L
         val wakeAtMs = if (testRun) 0L else WakeAlarm.wakeAtFor(this, startMs)
+        val is24 = DateFormat.is24HourFormat(this)
         var audio: MicInput? = null
         var recorder: NightRecorder? = null
         val gaps = GapTracker()
@@ -199,7 +201,7 @@ class RecordingService : Service() {
                 ?: error("Could not open the microphone. Another app may be using it.")
             // The whole night uses the rate the microphone opened at; reopening must match it.
             val rate = audio.sampleRate
-            val keepClips = prefs.saveClips && filesDir.usableSpace >= RecordingPolicy.NO_CLIPS_STORAGE_BYTES
+            val keepClips = prefs.saveClips && RecordingEnv.freeBytes(this) >= RecordingPolicy.NO_CLIPS_STORAGE_BYTES
             recorder = NightRecorder(
                 id = id,
                 startMs = startMs,
@@ -213,7 +215,8 @@ class RecordingService : Service() {
             active = true
             markRecording(this, id)
             if (!testRun && NightAudioPref.state(this).value == true) {
-                if (RecordingEnv.freeBytes(filesDir) >= NightAudioWriter.MIN_FREE_BYTES) {
+                if (!RecordingEnv.audioSupported()) audioNote = AUDIO_FAILED
+                else if (RecordingEnv.freeBytes(this) >= NightAudioWriter.MIN_FREE_BYTES) {
                     audioWriter = NightAudioWriter(app.repository.clipDir(id), rate, RecordingEnv.encoder)
                 } else audioNote = AUDIO_LOW_STORAGE
             }
@@ -244,7 +247,7 @@ class RecordingService : Service() {
                     if (stopReason != null) stopRequested = true
                     audioWriter?.let { w ->
                         if (w.failed) { audioNote = AUDIO_FAILED; audioWriter = null }
-                        else if (RecordingEnv.freeBytes(filesDir) < NightAudioWriter.MIN_FREE_BYTES) {
+                        else if (RecordingEnv.freeBytes(this) < NightAudioWriter.MIN_FREE_BYTES) {
                             w.close(); audioNote = AUDIO_LOW_STORAGE; audioWriter = null
                         }
                     }
@@ -303,7 +306,7 @@ class RecordingService : Service() {
                         paused -> "Microphone in use elsewhere. Will carry on when it is free."
                         testRun -> "Test run: listening for 5 minutes."
                         recorder.listening -> "Listening for snoring."
-                        else -> "Listening starts ${clock(startMs + delayMs)}."
+                        else -> "Listening starts ${RecordingPolicy.clockText(startMs + delayMs, is24)}."
                     }
                 )
                 // Save progress regularly so a night is not lost if the phone kills the app or dies.
@@ -463,11 +466,14 @@ class RecordingService : Service() {
         }.getOrNull()
 
         private fun markRecording(context: Context, id: String) {
-            context.getSharedPreferences(MARK_PREFS, Context.MODE_PRIVATE).edit().putString(MARK_ID, id).commit()
+            // commit(), not apply(): the marker must be on disk before audio starts, or a crash in the
+            // first seconds would leave no trace of the night for recovery.
+            context.getSharedPreferences(MARK_PREFS, Context.MODE_PRIVATE).edit(commit = true) { putString(MARK_ID, id) }
         }
 
         private fun clearRecordingMark(context: Context) {
-            context.getSharedPreferences(MARK_PREFS, Context.MODE_PRIVATE).edit().remove(MARK_ID).commit()
+            // commit(): a stale marker left by a lost async write would report this finished night as cut short.
+            context.getSharedPreferences(MARK_PREFS, Context.MODE_PRIVATE).edit(commit = true) { remove(MARK_ID) }
         }
 
         /**
@@ -488,9 +494,9 @@ class RecordingService : Service() {
                 is NightRecovery.Outcome.Kept -> app.repository.save(outcome.session)
                 is NightRecovery.Outcome.Lost -> app.repository.clipDir(outcome.id).deleteRecursively()
             }
-            sp.edit().remove(MARK_ID).commit()
+            sp.edit(commit = true) { remove(MARK_ID) } // durable before a new night can write its own marker
             _state.value = _state.value.copy(
-                notice = NightRecovery.message(outcome, ::clock),
+                notice = NightRecovery.message(outcome) { RecordingPolicy.clockText(it, DateFormat.is24HourFormat(app)) },
                 noticeSessionId = (outcome as? NightRecovery.Outcome.Kept)?.session?.id,
             )
         }
