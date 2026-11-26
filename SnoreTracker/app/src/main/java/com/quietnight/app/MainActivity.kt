@@ -200,9 +200,16 @@ private fun AppRoot(app: QuietNightApp) {
                     loading = !loaded,
                     clipBytes = clipTotal,
                 ) { detailId = it }
-                tab == 2 -> TrendsScreen(sessions, onOpenNight = { tab = 1; detailId = it }, weight = weight, onWeight = weightStore::update)
+                tab == 2 -> {
+                    val data = rememberDataActions(app)
+                    TrendsScreen(
+                        sessions, onOpenNight = { tab = 1; detailId = it }, weight = weight, onWeight = weightStore::update,
+                        onSaveReport = data.onSaveReport, onShareReport = data.onShareReport, reportStatus = data.message,
+                    )
+                }
                 else -> {
                     val data = rememberDataActions(app)
+                    val storage = com.quietnight.app.ui.rememberStorageState(app)
                     SettingsScreen(
                     prefs = prefs,
                     hasDemo = sessions.any { it.demo },
@@ -222,6 +229,9 @@ private fun AppRoot(app: QuietNightApp) {
                     onWeight = weightStore::update,
                     onSaveReport = data.onSaveReport,
                     onShareReport = data.onShareReport,
+                    storageBytes = storage.bytes,
+                    onClipCleanup = storage.onCleanupDays,
+                    storageMessage = storage.message,
                 )
                 }
             }

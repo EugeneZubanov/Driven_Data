@@ -16,7 +16,7 @@ import java.util.Locale
 data class WidgetContent(val score: String, val title: String, val detail: String) {
     companion object {
         fun of(sessions: List<Session>): WidgetContent {
-            val last = sessions.filter { !it.demo }.maxByOrNull { it.startMs }
+            val last = sessions.filter { !it.demo && it.countsForTrends }.maxByOrNull { it.startMs }
                 ?: return WidgetContent("–", "Quiet Night", "No nights yet. Tap to record.")
             val day = SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(last.endMs))
             return WidgetContent(

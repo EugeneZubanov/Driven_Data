@@ -18,6 +18,8 @@ data class Prefs(
     /** Daily bedtime reminder, at [reminderMinute] minutes after local midnight. */
     val reminderOn: Boolean = false,
     val reminderMinute: Int = 22 * 60 + 30,
+    /** Delete clips and whole-night audio of nights older than this many days; 0 = keep. */
+    val clipCleanupDays: Int = 0,
 ) {
     val thresholdDb: Float get() = when (sensitivity) { 0 -> 11f; 2 -> 5.5f; else -> 8f }
 }
@@ -35,6 +37,7 @@ class Settings(context: Context) {
             introSeen = sp.getBoolean("introSeen", false),
             reminderOn = sp.getBoolean("reminderOn", false),
             reminderMinute = sp.getInt("reminderMinute", 22 * 60 + 30),
+            clipCleanupDays = sp.getInt("clipCleanupDays", 0),
         )
     )
     val prefs: StateFlow<Prefs> = _prefs
@@ -51,6 +54,7 @@ class Settings(context: Context) {
             .putBoolean("introSeen", p.introSeen)
             .putBoolean("reminderOn", p.reminderOn)
             .putInt("reminderMinute", p.reminderMinute)
+            .putInt("clipCleanupDays", p.clipCleanupDays)
             .apply()
     }
 }

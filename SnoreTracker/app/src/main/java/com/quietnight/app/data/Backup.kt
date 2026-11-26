@@ -1,5 +1,6 @@
 package com.quietnight.app.data
 
+import com.quietnight.app.audio.SegmentIndex
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -21,6 +22,7 @@ class BackupException(message: String) : IOException(message)
  * Backup zip layout:
  *   nights.json                     {"format":"quietnight-backup","version":1,"sessions":[...]}
  *   clips/<sessionId>/<clipFile>    audio clips, as stored on the phone
+ *   clips/<sessionId>/night-audio.json and audio-NNN.m4a   whole-night audio, when it was kept
  * nights.json may also hold "weight" (the weight log, see [Weight.toJson]); older backups without it
  * restore fine.
  * Sample nights are never exported.
@@ -32,7 +34,12 @@ object Backup {
 
     const val MAX_INDEX_BYTES = 32L * 1024 * 1024
     const val MAX_CLIP_BYTES = 16L * 1024 * 1024
-    const val MAX_TOTAL_BYTES = 1024L * 1024 * 1024
+    /** One whole-night audio segment (.m4a). Segments are minutes long at 16 kbit/s, so this is generous. */
+    const val MAX_SEGMENT_BYTES = 64L * 1024 * 1024
+    /** All files of one night: a 12-hour night of whole-night audio is about 90 MB. */
+    const val MAX_NIGHT_BYTES = 512L * 1024 * 1024
+    const val MAX_TOTAL_BYTES = 8L * 1024 * 1024 * 1024
+    const val MAX_SEGMENTS = 500
     const val MAX_ENTRIES = 20_000
     const val MAX_SESSIONS = 5_000
     private const val MAX_NIGHT_MS = 36 * 3600_000L
@@ -55,12 +62,21 @@ object Backup {
             if (weight != null && weight.entries.isNotEmpty()) index.put("weight", Weight.toJson(weight))
             zip.write(index.toString().toByteArray())
             zip.closeEntry()
-            for (s in real) for (c in s.clips) {
-                val f = clipFile(s.id, c.file)
-                if (!isSafeName(s.id) || !isSafeName(c.file) || !f.isFile) continue
-                zip.putNextEntry(ZipEntry("clips/${s.id}/${c.file}"))
+            fun put(id: String, name: String) {
+                val f = clipFile(id, name)
+                if (!isSafeName(id) || !isSafeName(name) || !f.isFile) return
+                zip.putNextEntry(ZipEntry("clips/$id/$name"))
                 f.inputStream().use { it.copyTo(zip) }
                 zip.closeEntry()
+            }
+            for (s in real) {
+                for (c in s.clips) put(s.id, c.file)
+                // Whole-night audio: the segment list plus each segment it names.
+                val indexFile = clipFile(s.id, SegmentIndex.FILE)
+                if (indexFile.isFile) {
+                    put(s.id, SegmentIndex.FILE)
+                    SegmentIndex.read(indexFile.parentFile!!).forEach { put(s.id, it.file) }
+                }
             }
         }
         return real.size
@@ -87,6 +103,7 @@ object Backup {
             var index: ByteArray? = null
             var total = 0L
             var entries = 0
+            val perNight = HashMap<String, Long>()
             ZipInputStream(input.buffered()).use { zip ->
                 while (true) {
                     val e = zip.nextEntry ?: break
@@ -105,7 +122,16 @@ object Backup {
                         val target = File(dir, parts[2])
                         if (!target.canonicalPath.startsWith(staging.canonicalPath + File.separator)) continue
                         dir.mkdirs()
-                        total += copyLimited(zip, target, MAX_CLIP_BYTES)
+                        val limit = when {
+                            parts[2].endsWith(".m4a") -> MAX_SEGMENT_BYTES
+                            parts[2] == SegmentIndex.FILE -> MAX_INDEX_BYTES / 32
+                            else -> MAX_CLIP_BYTES
+                        }
+                        val n = copyLimited(zip, target, limit)
+                        total += n
+                        val night = (perNight[parts[1]] ?: 0L) + n
+                        perNight[parts[1]] = night
+                        if (night > MAX_NIGHT_BYTES) throw BackupException("A night in the backup has too much audio")
                     }
                     if (total > MAX_TOTAL_BYTES) throw BackupException("Backup is too large")
                     onProgress(entries)
@@ -136,6 +162,7 @@ object Backup {
                         if (!from.renameTo(to)) from.copyTo(to, overwrite = true)
                     }
                 }
+                restoreNightAudio(s, staged, dest)
                 save(Session(s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags, clips, demo = false, interruptedAtMs = s.interruptedAtMs, gaps = s.gaps, note = s.note, notSnoring = s.notSnoring, others = s.others, conf = s.conf))
                 added++
             }
@@ -145,6 +172,29 @@ object Backup {
         } finally {
             staging.deleteRecursively()
         }
+    }
+
+    /**
+     * Moves a night's whole-night audio from [staged] into [dest], keeping only segments that are listed,
+     * plainly named .m4a files, present in the backup, and inside the night. Writes a fresh index for them.
+     */
+    private fun restoreNightAudio(s: Session, staged: File, dest: File) {
+        val indexFile = File(staged, SegmentIndex.FILE)
+        if (!indexFile.isFile) return
+        val listed = runCatching { SegmentIndex.fromJson(indexFile.readText()) }.getOrNull() ?: return
+        val nightMs = s.endMs - s.startMs
+        val keep = listed.take(MAX_SEGMENTS).filter {
+            isSafeName(it.file) && it.file.endsWith(".m4a") && File(staged, it.file).isFile &&
+                it.startMs in 0..nightMs && it.durationMs in 0..nightMs
+        }.distinctBy { it.file }
+        if (keep.isEmpty()) return
+        dest.mkdirs()
+        for (seg in keep) {
+            val from = File(staged, seg.file)
+            val to = File(dest, seg.file)
+            if (!from.renameTo(to)) from.copyTo(to, overwrite = true)
+        }
+        SegmentIndex.write(dest, keep)
     }
 
     fun isValid(s: Session): Boolean =
@@ -192,7 +242,7 @@ object Backup {
     }
 }
 
-/** One row per night for spreadsheets. Sample nights are left out. */
+/** One row per night for spreadsheets. Sample nights, test runs and nights under an hour are left out. */
 object Csv {
     const val HEADER = "date,start,end,duration_min,mild_min,loud_min,heavy_min,score,tags,weight_kg"
 
@@ -204,7 +254,7 @@ object Csv {
         val date = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val time = SimpleDateFormat("HH:mm", Locale.US)
         val sb = StringBuilder(HEADER).append("\r\n")
-        for (s in sessions.filter { !it.demo }.sortedBy { it.startMs }) {
+        for (s in sessions.filter { !it.demo && it.countsForTrends }.sortedBy { it.startMs }) {
             sb.append(date.format(Date(s.endMs))).append(',')
                 .append(time.format(Date(s.startMs))).append(',')
                 .append(time.format(Date(s.endMs))).append(',')

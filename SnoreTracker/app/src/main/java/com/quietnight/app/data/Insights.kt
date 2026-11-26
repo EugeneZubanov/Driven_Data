@@ -49,10 +49,11 @@ object Insights {
         for (s in recent) {
             if (s.bucketSec <= 0) continue
             for (i in s.levels.indices) {
+                if (s.gapMask[i]) continue // no audio: neither recorded nor snoring
                 c.timeInMillis = s.startMs + i * s.bucketSec * 1000L
                 val h = c.get(Calendar.HOUR_OF_DAY)
                 rec[h] += s.bucketSec.toLong()
-                val l = s.levels[i].toInt()
+                val l = s.effectiveLevel(i) // includes the user's "not snoring" corrections
                 if (l in 1..3) snore[h][l - 1] += s.bucketSec.toLong()
             }
         }
