@@ -135,13 +135,77 @@ object SegmentIndex {
  * segment's start offset stays true to the night's clock. If the encoder fails, full audio stops
  * for the night and the recording itself carries on.
  */
+/** Where the recording loop hands full-night audio. */
+interface AudioSink {
+    val failed: Boolean
+    fun write(pcm: ShortArray, n: Int, offsetMs: Long)
+    fun gap()
+    fun close()
+}
+
+/**
+ * Runs [inner] on its own thread behind a bounded queue, so the recording loop never waits on the
+ * encoder. If the queue fills (encoder too slow), full audio stops for the night ([failed]) and
+ * the queued blocks are dropped; segments already finished stay listed. [close] waits for the
+ * thread to finish the last segment and end.
+ */
+class AsyncAudioSink(private val inner: AudioSink, capacity: Int = 100) : AudioSink {
+    private sealed class Cmd {
+        class Write(val pcm: ShortArray, val offsetMs: Long) : Cmd()
+        object Gap : Cmd()
+        object Close : Cmd()
+    }
+    private val queue = java.util.concurrent.ArrayBlockingQueue<Cmd>(capacity)
+    @Volatile private var overflowed = false
+    @Volatile private var closed = false
+    private val thread = kotlin.concurrent.thread(name = "night-audio") {
+        try {
+            while (true) {
+                when (val c = queue.take()) {
+                    is Cmd.Write -> if (!overflowed) inner.write(c.pcm, c.pcm.size, c.offsetMs)
+                    Cmd.Gap -> inner.gap()
+                    Cmd.Close -> { inner.close(); return@thread }
+                }
+            }
+        } catch (e: InterruptedException) {
+            runCatching { inner.close() }
+        }
+    }
+
+    val isRunning: Boolean get() = thread.isAlive
+    override val failed: Boolean get() = overflowed || inner.failed
+
+    override fun write(pcm: ShortArray, n: Int, offsetMs: Long) {
+        if (closed || failed) return
+        if (!queue.offer(Cmd.Write(pcm.copyOf(n), offsetMs))) {
+            overflowed = true
+            queue.clear()
+            queue.offer(Cmd.Gap) // end the segment in progress cleanly
+        }
+    }
+
+    override fun gap() {
+        if (!closed) queue.offer(Cmd.Gap)
+    }
+
+    override fun close() {
+        if (closed) return
+        closed = true
+        if (!queue.offer(Cmd.Close, 2, java.util.concurrent.TimeUnit.SECONDS)) {
+            queue.clear(); queue.offer(Cmd.Close)
+        }
+        thread.join(10_000)
+        if (thread.isAlive) thread.interrupt()
+    }
+}
+
 class NightAudioWriter(
     private val dir: File,
     /** Capture rate of the samples passed to [write]; they are resampled to [ENCODE_RATE]. */
     private val sampleRate: Int,
     private val factory: EncoderFactory,
     private val segmentMs: Long = 10 * 60_000L,
-) {
+) : AudioSink {
     private var resampler = Resampler(sampleRate, ENCODE_RATE)
     private val done = ArrayList<AudioSegment>()
     private var current: SegmentEncoder? = null
@@ -149,12 +213,12 @@ class NightAudioWriter(
     private var currentStartMs = 0L
     private var currentSamples = 0L
 
-    var failed = false
+    override var failed = false
         private set
     val segments: List<AudioSegment> get() = done.toList()
 
     /** [pcm] holds [n] samples starting [offsetMs] into the night. */
-    fun write(pcm: ShortArray, n: Int, offsetMs: Long) {
+    override fun write(pcm: ShortArray, n: Int, offsetMs: Long) {
         if (failed || n <= 0) return
         try {
             if (current == null) {
@@ -176,12 +240,12 @@ class NightAudioWriter(
     }
 
     /** Audio stopped arriving; close the segment so the next one starts at the right offset. */
-    fun gap() {
+    override fun gap() {
         if (current != null) runCatching { endSegment() }.onFailure { fail() }
     }
 
     /** End of the night, or full audio turned off (e.g. storage low). */
-    fun close() = gap()
+    override fun close() = gap()
 
     private fun endSegment() {
         val enc = current ?: return

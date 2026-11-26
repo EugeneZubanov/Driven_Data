@@ -173,6 +173,43 @@ class NightAudioTest {
         assertTrue(s.all { File(dir, it.file).exists() })
     }
 
+    @Test fun asyncSinkTurnsOffWhenTheEncoderFallsBehindAndShutsDownCleanly() {
+        val release = java.util.concurrent.CountDownLatch(1)
+        var first = true
+        val inner = NightAudioWriter(dir, rate, { f, _ ->
+            FakeEncoder(f).let { enc ->
+                object : SegmentEncoder {
+                    override fun write(pcm: ShortArray, n: Int) {
+                        if (first) { first = false; release.await() } // a stuck encoder
+                        enc.write(pcm, n)
+                    }
+                    override fun finish() = enc.finish()
+                }
+            }
+        }, segmentMs = 60_000)
+        val sink = com.quietnight.app.audio.AsyncAudioSink(inner, capacity = 10)
+        var t = 0L
+        repeat(50) { sink.write(buf, buf.size, t); t += 100 } // far more than the queue holds
+        assertTrue(sink.failed)
+        release.countDown()
+        sink.close()
+        assertFalse(sink.isRunning)
+    }
+
+    @Test fun asyncSinkFinishesTheLastSegmentOnClose() {
+        val sink = com.quietnight.app.audio.AsyncAudioSink(NightAudioWriter(dir, rate, { f, _ -> FakeEncoder(f) }, segmentMs = 60_000))
+        var t = 0L
+        while (t < 90_000) {
+            sink.write(buf, buf.size, t); t += 100
+            if (t % 1000 == 0L) Thread.sleep(1) // let the encoder thread keep up, as a real one would
+        }
+        sink.close()
+        sink.close() // twice is harmless
+        assertFalse(sink.isRunning)
+        assertFalse(sink.failed)
+        assertEquals(listOf(0L, 60_000L), SegmentIndex.read(dir).map { it.startMs })
+    }
+
     @Test fun subSecondSegmentIsDropped() {
         val w = NightAudioWriter(dir, rate, { f, _ -> FakeEncoder(f) })
         w.feed(0, 500)
