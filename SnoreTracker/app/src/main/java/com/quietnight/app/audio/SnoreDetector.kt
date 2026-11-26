@@ -229,7 +229,9 @@ class SnoreDetector(
         }
         minuteMaxFloor = max(minuteMaxFloor, floorDb)
         if (++minuteFrames == 1200) {
-            baselineDb = minOf(baselineDb, max(minuteMaxFloor, MIN_FLOOR_DB))
+            // A minute at the clamp is digital silence (mic muted, blocked or gated by noise
+            // suppression), not a quiet room: it would make every later snore look heavy.
+            if (minuteMaxFloor > MIN_FLOOR_DB + 3f) baselineDb = minOf(baselineDb, minuteMaxFloor)
             minuteMaxFloor = Float.NEGATIVE_INFINITY
             minuteFrames = 0
         }
