@@ -68,6 +68,14 @@ object RecordingPolicy {
         return if (behind > MAX_LAG_MS) behind - 1_000L else 0L
     }
 
+    /**
+     * New stop time after the wake-up setting changed mid-night: the next time the clock shows
+     * [hour]:[minute] after the moment of the change ([nowMs]), so moving it earlier never stops a
+     * night at a time that has already passed; 0 when the alarm was turned off.
+     */
+    fun wakeAtAfterChange(enabled: Boolean, hour: Int, minute: Int, nowMs: Long, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): Long =
+        if (enabled) nextWakeTime(nowMs, hour, minute, zone) else 0L
+
     /** A time of day as the phone shows it: "23:05" with the 24-hour setting, "11:05 PM" without. */
     fun clockText(ms: Long, is24Hour: Boolean, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): String =
         timeOfDay(java.time.Instant.ofEpochMilli(ms).atZone(zone).toLocalTime(), is24Hour)

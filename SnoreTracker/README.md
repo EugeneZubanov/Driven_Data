@@ -3,7 +3,11 @@
 Records overnight through the phone's microphone, detects snoring on the device, and shows
 each night as a timeline with a snore score, plus trends over days, weeks and months.
 
-- **Record** – start/stop, fall-asleep delay, factors and remedies to tag the night with.
+Trying it on a phone? Follow [TESTING.md](TESTING.md), a one-page checklist.
+
+- **Record** – Start, a 5-minute test run, and a *Tonight* card: fall-asleep delay, wake-up alarm,
+  factors and remedies, optional full-night audio and a microphone check. While recording the
+  screen dims to near-black after 30 s (tap to wake) and Stop needs a 1.5 s hold.
 - **Results** – nights by month; each night has a loudness timeline, time snoring by level
   (mild / loud / heavy), score, and up to 15 ten-second clips of the loudest snoring.
 - **Trends** – average score per day/week/month (empty periods stay visible), a month calendar
@@ -29,6 +33,38 @@ Add `-Proborazzi.test.record=true` to the test command to write screen PNGs to `
 Builds are signed with `keystore/sideload.jks` (password `android`), a non-secret key kept in
 the repo so that every build can update an installed copy without losing data.
 
+## Recording reliability
+
+A night runs in a foreground service with a notification (elapsed time, Stop and save) and a
+partial wake lock, and is saved every 2 minutes.
+
+- **Before starting**: the app warns if the phone is not charging or storage is low, and shows a
+  card when Android may stop it to save battery, with a button to the setting and phone-specific
+  steps (Samsung, Xiaomi, Huawei/Honor, OnePlus/Oppo, Pixel).
+- **If the app is closed in the night** (by the phone, a crash, or the microphone permission
+  being taken away) the next launch keeps the part saved so far, marks it as cut short and says
+  so on the Record tab. Android 14+ does not let the app restart the microphone from the
+  background, so the night cannot resume by itself.
+- **Calls and other apps**: when the microphone is taken or muted, recording pauses and tries
+  again, and that stretch is kept as a gap without sound; the timeline stays on the real clock.
+  Audio lost to a stall is added back as quiet, so the night never shrinks.
+- **Microphone rate**: 16 kHz if the phone allows it, otherwise 48 or 44.1 kHz.
+- **Safety stops**: the night is stopped and saved at 5% battery when unplugged, and after 12 hours.
+- **Wake-up alarm**: at the set time the night stops, saves and an alarm rings until you act
+  (snooze 5 or 10 minutes, or turn off). The time can be changed or turned off during the night.
+  It needs no exact-alarm permission because the running recording watches the clock, so it
+  only rings if the app is still running; keep your usual alarm as well. Snooze uses
+  `setAlarmClock` (falls back to an inexact alarm if exact alarms are not allowed).
+- **Full-night audio** (off by default): AAC at 16 kHz mono, about 11 MB an hour, in 10-minute
+  files that are each finished before the next starts, listed in `night-audio.json`. It turns
+  itself off with a note if storage runs low or the phone's encoder fails; the night carries on.
+- **Screen and battery**: the screen may turn off after 10 minutes in the dimmed view; the live
+  meter updates less often when dimmed or off. Expect very roughly 1.5–4% battery an hour unplugged
+  (an estimate, not measured).
+- Times follow the phone's 12/24-hour setting.
+
+What the app cannot do: see the end of [TESTING.md](TESTING.md).
+
 ## Trends: how the numbers are worked out
 
 - Trends, the calendar, the report, the CSV and the widget leave out test runs and nights with under
@@ -51,7 +87,7 @@ the repo so that every build can update an installed copy without losing data.
 - **Backup** writes a zip (`nights.json`, `clips/<night>/<clip>.wav`, and for nights that kept
   whole-night audio `clips/<night>/night-audio.json` plus its `audio-NNN.m4a` segments) wherever you
   choose via the system file picker; no storage permission is needed. Sample nights are left out.
-  Whole-night audio makes backups large (about 7 MB per hour).
+  Whole-night audio makes backups large (about 11 MB per hour).
 - **Restore** adds nights from such a zip and keeps any night already on the phone (matched by id).
   It ignores unexpected paths and checks every night. Limits: 16 MB per clip, 64 MB per audio
   segment, 512 MB per night, 8 GB per backup, 20,000 files and 5,000 nights; a segment list only
