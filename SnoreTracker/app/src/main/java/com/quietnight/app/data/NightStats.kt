@@ -65,7 +65,7 @@ object NightStats {
             any[c] = true
             if (!mask[b]) heard[c] = true
             val l = session.effectiveLevel(b)
-            val a = session.amps[b].toInt()
+            val a = session.amps.getOrElse(b) { 0 }.toInt() // a damaged file may have fewer amps than levels
             if (notSnoring[b] && !mask[b] && session.levels[b] > 0) corr[c] = maxOf(corr[c], a)
             if (!mask[b] && session.hasOther(b)) oth[c] = true
             if (l > lv[c] || (l == lv[c] && a > amp[c])) { lv[c] = l; amp[c] = a }

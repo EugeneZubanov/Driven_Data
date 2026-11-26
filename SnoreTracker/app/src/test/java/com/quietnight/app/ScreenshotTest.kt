@@ -87,6 +87,19 @@ class ScreenshotTest {
         )
     })
 
+    @Test fun detectionCheck() = shot("detection-check") {
+        val diag = com.quietnight.app.audio.NightDiagnostics(16000, 8f, 8 * 3600L, 0f, 120, 10, 5, 7, 3, 2, 60, 48, 4, 9, -62f, -55f, -40f)
+        Column(Modifier.padding(20.dp)) {
+            com.quietnight.app.ui.DetectionCheckCard(
+                com.quietnight.app.ui.DetectionCheckState(
+                    com.quietnight.app.audio.SensitivityAdvice.Advice(0, "You marked 42 min as not snoring over the last 5 nights. Much of it was during talking. Lower sensitivity may pick up fewer other sounds."),
+                    diag.format(), "text",
+                ),
+                current = 1, initiallyOpen = true,
+            ) {}
+        }
+    }
+
     @Test fun introLargeFont() = shot("intro-font130", bigFont { IntroScreen({}, startPage = 2) })
 
     private fun shot(name: String, content: @Composable () -> Unit) {

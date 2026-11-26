@@ -1,5 +1,6 @@
 package com.quietnight.app.data
 
+import com.quietnight.app.audio.NightDiagnostics
 import com.quietnight.app.audio.SegmentIndex
 import org.json.JSONArray
 import org.json.JSONObject
@@ -23,6 +24,7 @@ class BackupException(message: String) : IOException(message)
  *   nights.json                     {"format":"quietnight-backup","version":1,"sessions":[...]}
  *   clips/<sessionId>/<clipFile>    audio clips, as stored on the phone
  *   clips/<sessionId>/night-audio.json and audio-NNN.m4a   whole-night audio, when it was kept
+ *   clips/<sessionId>/detector.json  the detector's diagnostics for the night, when saved
  * nights.json may also hold "weight" (the weight log, see [Weight.toJson]); older backups without it
  * restore fine.
  * Sample nights are never exported.
@@ -40,6 +42,8 @@ object Backup {
     const val MAX_NIGHT_BYTES = 512L * 1024 * 1024
     const val MAX_TOTAL_BYTES = 8L * 1024 * 1024 * 1024
     const val MAX_SEGMENTS = 500
+    /** night-audio.json and detector.json. */
+    const val MAX_SMALL_JSON_BYTES = 1024L * 1024
     const val MAX_ENTRIES = 20_000
     const val MAX_SESSIONS = 5_000
     private const val MAX_NIGHT_MS = 36 * 3600_000L
@@ -72,6 +76,7 @@ object Backup {
             for (s in real) {
                 for (c in s.clips) put(s.id, c.file)
                 // Whole-night audio: the segment list plus each segment it names.
+                put(s.id, NightDiagnostics.FILE_NAME) // detector details, when they were saved
                 val indexFile = clipFile(s.id, SegmentIndex.FILE)
                 if (indexFile.isFile) {
                     put(s.id, SegmentIndex.FILE)
@@ -124,7 +129,7 @@ object Backup {
                         dir.mkdirs()
                         val limit = when {
                             parts[2].endsWith(".m4a") -> MAX_SEGMENT_BYTES
-                            parts[2] == SegmentIndex.FILE -> MAX_INDEX_BYTES / 32
+                            parts[2] == SegmentIndex.FILE || parts[2] == NightDiagnostics.FILE_NAME -> MAX_SMALL_JSON_BYTES
                             else -> MAX_CLIP_BYTES
                         }
                         val n = copyLimited(zip, target, limit)
@@ -163,6 +168,12 @@ object Backup {
                     }
                 }
                 restoreNightAudio(s, staged, dest)
+                // Detector details: only if they still read as diagnostics.
+                File(staged, NightDiagnostics.FILE_NAME).takeIf { it.isFile && NightDiagnostics.read(staged) != null }?.let { from ->
+                    dest.mkdirs()
+                    val to = File(dest, NightDiagnostics.FILE_NAME)
+                    if (!from.renameTo(to)) from.copyTo(to, overwrite = true)
+                }
                 save(Session(s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags, clips, demo = false, interruptedAtMs = s.interruptedAtMs, gaps = s.gaps, note = s.note, notSnoring = s.notSnoring, others = s.others, conf = s.conf))
                 added++
             }

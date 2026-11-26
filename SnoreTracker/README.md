@@ -93,6 +93,12 @@ What the app cannot do: see the end of [TESTING.md](TESTING.md).
   segment, 512 MB per night, 8 GB per backup, 20,000 files and 5,000 nights; a segment list only
   keeps plainly named `.m4a` files that are in the backup and inside the night. A damaged or
   oversized file is refused before anything is saved. It keeps running, and its result stays shown, if you leave Settings.
+- Backups also carry each night's detector details (`detector.json`, 1 MB cap; dropped on restore
+  if unreadable). Before restoring, the app checks there is about twice the backup's size free and
+  says so plainly if not.
+- **Detection check** shows a sensitivity suggestion when your recent nights point to one (with the
+  reason; it is never applied without you pressing "Use …"), and last night's detector details,
+  which you can share as plain text with the phone model, Android and app version and capture rate.
 - **Audio storage** shows how much space clips and whole-night audio use, and can delete the audio
   of nights older than 30 or 90 days, at once and each time the app starts. The nights stay.
 - **Export CSV** writes one row per night: date, start, end, duration, minutes mild/loud/heavy,

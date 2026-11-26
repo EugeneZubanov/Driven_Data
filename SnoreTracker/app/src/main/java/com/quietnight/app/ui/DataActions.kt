@@ -13,6 +13,7 @@ import com.quietnight.app.data.Backup
 import com.quietnight.app.data.BackupException
 import android.content.Intent
 import com.quietnight.app.data.Csv
+import com.quietnight.app.data.RestoreSpace
 import com.quietnight.app.data.StorageCleanup
 import androidx.compose.runtime.setValue
 import com.quietnight.app.data.ReportData
@@ -57,19 +58,21 @@ object DataJobs {
 
     fun report(app: QuietNightApp, resolver: ContentResolver, uri: Uri) = run(app, "Making the report…") {
         val data = ReportData.build(app.repository.sessions.value, WeightStore.get(app.filesDir).log.value, System.currentTimeMillis())
-        resolver.openOutputStream(uri)?.use { ReportRenderer.writePdf(data, it) } ?: throw IllegalStateException()
+        writeOrDelete(resolver, uri) { ReportRenderer.writePdf(data, it) }
         _state.value = _state.value.copy(reportUri = uri)
         "Saved the report (${data.nights.size} ${if (data.nights.size == 1) "night" else "nights"})."
     }
 
     fun backup(app: QuietNightApp, resolver: ContentResolver, uri: Uri) = run(app, "Saving backup…") {
-        val n = resolver.openOutputStream(uri)?.use { out ->
+        val n = writeOrDelete(resolver, uri) { out ->
             Backup.export(app.repository.sessions.value, app.repository::clipFile, out, WeightStore.get(app.filesDir).log.value)
-        } ?: throw IllegalStateException()
+        }
         "Backed up $n ${if (n == 1) "night" else "nights"}."
     }
 
     fun restore(app: QuietNightApp, resolver: ContentResolver, uri: Uri, cacheDir: File) = run(app, "Restoring…") { progress ->
+        // Staging plus the final copy can need about twice the zip's size; say so up front instead of failing midway.
+        RestoreSpace.problem(sizeOf(resolver, uri), allocatable(app, cacheDir), allocatable(app, app.filesDir))?.let { throw BackupException(it) }
         val r = resolver.openInputStream(uri)?.use { input ->
             Backup.restore(
                 input,
@@ -89,9 +92,33 @@ object DataJobs {
         }
     }
 
+    /**
+     * Writes to a document the user just created; if writing fails, removes the half-written file so a
+     * broken backup or report is not left behind, then rethrows.
+     */
+    private fun <T> writeOrDelete(resolver: ContentResolver, uri: Uri, write: (java.io.OutputStream) -> T): T = try {
+        resolver.openOutputStream(uri)?.use(write) ?: throw IllegalStateException("Could not open the file")
+    } catch (e: Exception) {
+        runCatching { android.provider.DocumentsContract.deleteDocument(resolver, uri) }
+        throw e
+    }
+
+    /** Bytes the app could use in [dir], counting cache the system can clear; falls back to plain free space. */
+    private fun allocatable(app: QuietNightApp, dir: File): Long = runCatching {
+        val sm = app.getSystemService(android.os.storage.StorageManager::class.java)!!
+        sm.getAllocatableBytes(sm.getUuidForPath(dir))
+    }.getOrElse { @Suppress("UsableSpace") dir.usableSpace }
+
+    /** Size of a picked document, or null when the provider does not say. */
+    private fun sizeOf(resolver: ContentResolver, uri: Uri): Long? = runCatching {
+        resolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else null
+        }
+    }.getOrNull()
+
     fun exportCsv(app: QuietNightApp, resolver: ContentResolver, uri: Uri) = run(app, "Saving CSV…") {
         val text = Csv.export(app.repository.sessions.value, WeightStore.get(app.filesDir).log.value)
-        resolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) } ?: throw IllegalStateException()
+        writeOrDelete(resolver, uri) { it.write(text.toByteArray()) }
         "Saved the spreadsheet file."
     }
 }
@@ -128,13 +155,13 @@ fun rememberDataActions(app: QuietNightApp): DataActions {
     }
 
     return DataActions(
-        onBackup = { backupLauncher.launch(Backup.fileName(System.currentTimeMillis())) },
+        onBackup = { runCatching { backupLauncher.launch(Backup.fileName(System.currentTimeMillis())) } },
         // Some file managers label zips oddly, so accept any type and let the restore validate it.
-        onRestore = { restoreLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
-        onExportCsv = { csvLauncher.launch(Csv.fileName(System.currentTimeMillis())) },
+        onRestore = { runCatching { restoreLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) } },
+        onExportCsv = { runCatching { csvLauncher.launch(Csv.fileName(System.currentTimeMillis())) } },
         message = state.message,
         busy = state.busy,
-        onSaveReport = { reportLauncher.launch(ReportData.fileName(System.currentTimeMillis())) },
+        onSaveReport = { runCatching { reportLauncher.launch(ReportData.fileName(System.currentTimeMillis())) } },
         // Shares the document the user just saved: the picker granted us access to it, and we pass that on,
         // so no FileProvider is needed.
         onShareReport = state.reportUri?.let { uri ->
