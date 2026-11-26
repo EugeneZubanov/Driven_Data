@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.quietnight.app.BuildConfig
 import com.quietnight.app.data.Prefs
+import com.quietnight.app.data.ReportData
 import com.quietnight.app.data.StorageCleanup
 import com.quietnight.app.data.ReminderTime
 import com.quietnight.app.data.WeightLog
@@ -64,6 +65,10 @@ fun SettingsScreen(
     onClipCleanup: ((Int) -> Unit)? = null,
     storageMessage: String? = null,
     detection: DetectionCheckState? = null,
+    /** At least one real (non-sample) night: Back up and Export need one. Delete all only needs [hasSessions]. */
+    hasRealNights: Boolean = hasSessions,
+    /** The 30-night report has a real night to show. */
+    canReport: Boolean = hasRealNights,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
@@ -116,7 +121,7 @@ fun SettingsScreen(
 
         if (onBackup != null || onRestore != null || onExportCsv != null) {
             Spacer(Modifier.height(12.dp))
-            DataCard(hasSessions, onBackup, onRestore, onExportCsv, dataMessage, dataBusy, onSaveReport, onShareReport)
+            DataCard(hasRealNights, canReport, onBackup, onRestore, onExportCsv, dataMessage, dataBusy, onSaveReport, onShareReport)
         }
 
         if (detection != null) {
@@ -183,6 +188,7 @@ fun SettingsScreen(
 @Composable
 private fun DataCard(
     hasSessions: Boolean,
+    canReport: Boolean,
     onBackup: (() -> Unit)?,
     onRestore: (() -> Unit)?,
     onExportCsv: (() -> Unit)?,
@@ -199,7 +205,8 @@ private fun DataCard(
                     "or another phone. Restoring adds missing nights and keeps the ones already here. " +
                     "The spreadsheet file has one row per night; the report is a printable summary of the last 30 nights. " +
                     "Sample nights are left out. Backups include clips and any whole-night audio, so they can be large " +
-                    "(about 7 MB per hour of whole-night audio).",
+                    "(about 11 MB per hour of whole-night audio). Nothing is sent anywhere, and Android's own cloud backup " +
+                    "and phone-to-phone transfer are off for this app, so this is the way to keep a copy.",
                 color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
@@ -207,8 +214,18 @@ private fun DataCard(
                 if (onBackup != null) OutlinedButton(onBackup, enabled = hasSessions && !busy) { Text("Back up") }
                 if (onRestore != null) OutlinedButton(onRestore, enabled = !busy) { Text("Restore") }
                 if (onExportCsv != null) OutlinedButton(onExportCsv, enabled = hasSessions && !busy) { Text("Export CSV") }
-                if (onSaveReport != null) OutlinedButton(onSaveReport, enabled = hasSessions && !busy) { Text("30-night report (PDF)") }
+                if (onSaveReport != null) OutlinedButton(onSaveReport, enabled = canReport && !busy) { Text("30-night report (PDF)") }
                 if (onShareReport != null) OutlinedButton(onShareReport, enabled = !busy) { Text("Share report") }
+            }
+            if (!hasSessions) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Back up and Export need at least one recorded night; sample nights are left out.",
+                    color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
+                )
+            } else if (!canReport && onSaveReport != null) {
+                Spacer(Modifier.height(6.dp))
+                Text(ReportData.UNAVAILABLE, color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
             }
             if (busy) {
                 Spacer(Modifier.height(8.dp))

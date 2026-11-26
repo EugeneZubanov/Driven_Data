@@ -14,6 +14,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.foundation.layout.Column
@@ -86,6 +88,31 @@ class ScreenshotTest {
             storageBytes = 412L * 1024 * 1024, onClipCleanup = {}, storageMessage = "Freed 96 MB.",
         )
     })
+
+    /** Only sample nights: nothing to back up, export or report, but Delete all still works. */
+    @Test fun settingsWithOnlySampleNights() {
+        val samples = sessions // DemoData nights are all samples
+        shot("settings-samples-only") {
+            SettingsScreen(
+                Prefs(), hasDemo = true, hasSessions = samples.isNotEmpty(), onPrefs = {}, onAddDemo = {}, onRemoveDemo = {}, onDeleteAll = {},
+                onBackup = {}, onRestore = {}, onExportCsv = {}, onSaveReport = {},
+                hasRealNights = samples.any { !it.demo },
+                canReport = com.quietnight.app.data.ReportData.available(samples, now),
+            )
+        }
+        compose.onNodeWithText("Back up").assertIsNotEnabled()
+        compose.onNodeWithText("Export CSV").assertIsNotEnabled()
+        compose.onNodeWithText("30-night report (PDF)").assertIsNotEnabled()
+        compose.onNodeWithText("Restore").assertIsEnabled()
+        compose.onNodeWithText("Back up and Export need at least one recorded night; sample nights are left out.").assertExists()
+        compose.onNodeWithText("Delete all nights").performScrollTo().assertIsEnabled()
+    }
+
+    @Test fun trendsReportDisabledWithOnlySamples() {
+        shot("trends-samples-only") { TrendsScreen(sessions, onSaveReport = {}) }
+        compose.onNodeWithText("Save report").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText(com.quietnight.app.data.ReportData.UNAVAILABLE).assertExists()
+    }
 
     @Test fun detectionCheck() = shot("detection-check") {
         val diag = com.quietnight.app.audio.NightDiagnostics(16000, 8f, 8 * 3600L, 0f, 120, 10, 5, 7, 3, 2, 60, 48, 4, 9, -62f, -55f, -40f)
@@ -251,6 +278,18 @@ class ScreenshotTest {
             Prefs(), RecState(recording = true, startMs = now - 2 * 3600_000L, listening = true, wakeAtMs = now + 5 * 3600_000L),
             null, {}, {}, {}, {}, nowMs = { now }, is24Hour = false,
         )
+    }
+
+    @Test fun recordWakeNoNotifications() {
+        shot("record-wake-no-notifications") {
+            RecordScreen(
+                Prefs(), RecState(), null, {}, {}, {}, {}, nowMs = { now },
+                wake = WakeSetting(enabled = true, hour = 6, minute = 45), notificationsAllowed = false, is24Hour = true,
+            )
+        }
+        compose.onNodeWithText("Wake-up alarm").performScrollTo().performClick()
+        compose.onNodeWithText("Wake-up alarm").performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/record-wake-no-notifications.png")
     }
 
     @Test fun recordingDimmed() = shot("recording-dimmed") {

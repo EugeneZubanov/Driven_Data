@@ -228,6 +228,8 @@ private fun AppRoot(app: QuietNightApp) {
                     prefs = prefs,
                     hasDemo = sessions.any { it.demo },
                     hasSessions = sessions.isNotEmpty(),
+                    hasRealNights = sessions.any { !it.demo },
+                    canReport = com.quietnight.app.data.ReportData.available(sessions, System.currentTimeMillis()),
                     onPrefs = app.settings::update,
                     onAddDemo = { Thread { DemoData.generate(System.currentTimeMillis()).forEach(app.repository::save) }.start() }, // ~35 files: off the main thread
                     onRemoveDemo = { Thread { app.repository.deleteWhere { it.demo } }.start() },

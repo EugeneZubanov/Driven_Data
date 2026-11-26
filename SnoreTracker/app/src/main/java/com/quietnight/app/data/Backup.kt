@@ -38,7 +38,7 @@ object Backup {
     const val MAX_CLIP_BYTES = 16L * 1024 * 1024
     /** One whole-night audio segment (.m4a). Segments are minutes long at 16 kbit/s, so this is generous. */
     const val MAX_SEGMENT_BYTES = 64L * 1024 * 1024
-    /** All files of one night: a 12-hour night of whole-night audio is about 90 MB. */
+    /** All files of one night: a 12-hour night of whole-night audio is about 130 MB. */
     const val MAX_NIGHT_BYTES = 512L * 1024 * 1024
     const val MAX_TOTAL_BYTES = 8L * 1024 * 1024 * 1024
     const val MAX_SEGMENTS = 500

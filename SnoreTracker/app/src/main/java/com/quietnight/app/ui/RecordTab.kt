@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.quietnight.app.audio.MicCheck
@@ -49,9 +50,11 @@ fun RecordTab(
     val context = LocalContext.current
     val mic by MicCheck.state.collectAsStateWithLifecycle()
 
+    var notificationsOn by remember { mutableStateOf(true) }
     var exempt by remember { mutableStateOf(true) }
     LifecycleResumeEffect(Unit) {
         exempt = isBatteryExempt(context)
+        notificationsOn = NotificationManagerCompat.from(context).areNotificationsEnabled()
         onPauseOrDispose { MicCheck.stop() }
     }
 
@@ -59,6 +62,9 @@ fun RecordTab(
         if (granted) MicCheck.start(context)
     }
     val wake by WakeAlarm.setting(context).collectAsStateWithLifecycle()
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        notificationsOn = NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
     val fullAudio by NightAudioPref.state(context).collectAsStateWithLifecycle()
     val testRunPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (granted.isNotEmpty()) RecordingService.start(context, testRun = true)
@@ -92,7 +98,14 @@ fun RecordTab(
             } else micPermission.launch(Manifest.permission.RECORD_AUDIO)
         },
         wake = wake ?: WakeSetting(),
-        onWake = { WakeAlarm.update(context, it) },
+        onWake = {
+            WakeAlarm.update(context, it)
+            // The alarm is a notification: ask for permission when it is turned on (Android 13+).
+            if (it.enabled && Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        },
+        notificationsAllowed = notificationsOn,
         onTestRun = {
             val needed = neededToRecord()
             if (needed.isEmpty()) RecordingService.start(context, testRun = true) else testRunPermissions.launch(needed.toTypedArray())

@@ -96,6 +96,9 @@ class RecordingService : Service() {
             ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(System.currentTimeMillis(), "Starting…"), type)
         } catch (e: Exception) {
             // Android 12+ refuses from the background; Android 14+ refuses without the microphone permission.
+            // The platform may still end the app for a startForegroundService() that was never
+            // answered; nothing here can prevent that, so start() checks both conditions first and
+            // is only called from the visible app, which makes this path a last resort.
             starting = false
             if (worker == null) {
                 _state.value = RecState(error = "Could not start recording. Open the app and try again.")
