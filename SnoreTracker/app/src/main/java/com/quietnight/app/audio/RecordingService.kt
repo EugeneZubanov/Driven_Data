@@ -171,7 +171,8 @@ class RecordingService : Service() {
             }
         }
         try {
-            audio = openMic() ?: error("Could not open the microphone. Another app may be using it.")
+            // A just-finished microphone check may still be letting go of the input; give it a moment.
+            audio = openMic() ?: run { Thread.sleep(600); openMic() } ?: error("Could not open the microphone. Another app may be using it.")
             val keepClips = prefs.saveClips && filesDir.usableSpace >= RecordingPolicy.NO_CLIPS_STORAGE_BYTES
             recorder = NightRecorder(
                 id = id,
@@ -344,6 +345,9 @@ class RecordingService : Service() {
         private val _state = MutableStateFlow(RecState())
         val state: StateFlow<RecState> = _state
 
+        /** True while a night is being recorded in this process (the microphone is taken). */
+        val isRecording: Boolean get() = active || starting
+
         fun start(context: Context) {
             if (active || starting) return
             // Checked here as well as in the service: on Android 14+ a microphone service started
@@ -352,6 +356,7 @@ class RecordingService : Service() {
                 _state.value = RecState(error = "Microphone permission is needed to record.")
                 return
             }
+            MicCheck.stop()
             starting = true
             _state.value = RecState()
             try {
