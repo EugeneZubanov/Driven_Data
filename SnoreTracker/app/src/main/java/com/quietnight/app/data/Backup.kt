@@ -136,7 +136,7 @@ object Backup {
                         if (!from.renameTo(to)) from.copyTo(to, overwrite = true)
                     }
                 }
-                save(Session(s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags, clips, demo = false, interruptedAtMs = s.interruptedAtMs, gaps = s.gaps, note = s.note))
+                save(Session(s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags, clips, demo = false, interruptedAtMs = s.interruptedAtMs, gaps = s.gaps, note = s.note, others = s.others, conf = s.conf))
                 added++
             }
             // Weight readings: days already logged on this phone win, as with nights.
@@ -157,7 +157,9 @@ object Backup {
             s.tags.size <= 50 && s.tags.all { it.length <= 60 } &&
             s.clips.size <= 100 &&
             s.gaps.size <= 1000 && s.gaps.all { it.fromSec in 0..it.toSec } &&
-            s.note.length <= 2000
+            s.note.length <= 2000 &&
+            (s.others.isEmpty() || s.others.size == s.levels.size) && s.others.all { it in 0..3 } &&
+            (s.conf.isEmpty() || s.conf.size == s.levels.size) && s.conf.all { it in 0..100 }
 
     private fun readLimited(input: InputStream, limit: Long): ByteArray {
         val out = java.io.ByteArrayOutputStream()

@@ -46,6 +46,10 @@ class Session(
     val gaps: List<Gap> = emptyList(),
     /** Short free-text note added after the night; empty when none. */
     val note: String = "",
+    /** Per bucket: OtherSound kind bits (1 talking, 2 other loud sound). Empty if not recorded. */
+    val others: ByteArray = ByteArray(0),
+    /** Per bucket: highest snore confidence 0–100 (a rough heuristic). Empty if not recorded. */
+    val conf: ByteArray = ByteArray(0),
 ) {
     val durationSec: Int get() = ((endMs - startMs) / 1000).toInt()
 
@@ -111,11 +115,13 @@ class Session(
         if (interruptedAtMs > 0) put("interruptedAt", interruptedAtMs)
         if (gaps.isNotEmpty()) put("gaps", JSONArray().also { arr -> gaps.forEach { arr.put(JSONArray().put(it.fromSec).put(it.toSec)) } })
         if (note.isNotEmpty()) put("note", note)
+        if (others.any { it.toInt() != 0 }) put("others", Base64.getEncoder().encodeToString(others))
+        if (conf.any { it.toInt() != 0 }) put("conf", Base64.getEncoder().encodeToString(conf))
     }
 
     /** Same night with tags and note changed after the fact. */
     fun withEdits(tags: List<String>, note: String): Session =
-        Session(id, startMs, endMs, bucketSec, levels, amps, tags, clips, demo, interruptedAtMs, gaps, note)
+        Session(id, startMs, endMs, bucketSec, levels, amps, tags, clips, demo, interruptedAtMs, gaps, note, others = others, conf = conf)
 
     companion object {
         val WEIGHTS = floatArrayOf(0.4f, 1.0f, 2.0f)
@@ -140,6 +146,8 @@ class Session(
                 interruptedAtMs = o.optLong("interruptedAt", 0L),
                 gaps = List(gaps.length()) { gaps.getJSONArray(it).let { g -> Gap(g.getInt(0), g.getInt(1)) } },
                 note = o.optString("note", ""),
+                others = o.optString("others", "").let { if (it.isEmpty()) ByteArray(0) else Base64.getDecoder().decode(it) },
+                conf = o.optString("conf", "").let { if (it.isEmpty()) ByteArray(0) else Base64.getDecoder().decode(it) },
             )
         }
     }

@@ -31,6 +31,9 @@ class NightRecorder(
 
     private var levels = ByteArray(4096)
     private var amps = ByteArray(4096)
+    // Per bucket: OtherSound kind bits heard, and the highest snore confidence (0–100).
+    private var others = ByteArray(4096)
+    private var confs = ByteArray(4096)
     private var totalSamples = 0L
     /** Time with no audio (see [skip]) since listening began; shifts detector times onto the night's clock. */
     private var skippedMs = 0L
@@ -38,7 +41,7 @@ class NightRecorder(
     var eventCount = 0
         private set
 
-    private val detector = SnoreDetector(sampleRate, thresholdDb) { onSnore(it) }
+    private val detector = SnoreDetector(sampleRate, thresholdDb) { onSnore(it) }.also { d -> d.onOther = { onOther(it) } }
     val currentDbAboveFloor: Float get() = if (listening) detector.currentDbAboveFloor else 0f
     val listening: Boolean get() = totalSamples >= delaySamples
 
@@ -98,12 +101,23 @@ class NightRecorder(
         eventCount++
         val level = Level.fromDb(e.dbAboveFloor).toByte()
         val amp = e.dbAboveFloor.toInt().coerceIn(0, 100).toByte()
+        val conf = (e.confidence * 100).toInt().coerceIn(0, 100).toByte()
         val first = ((delayOffsetMs + skippedMs + e.startMs) / 1000 / bucketSec).toInt()
         val last = ((delayOffsetMs + skippedMs + e.startMs + e.durationMs - 1) / 1000 / bucketSec).toInt()
         for (b in first..last) {
             ensure(b + 1)
             if (level > levels[b]) levels[b] = level
             if (amp > amps[b]) amps[b] = amp
+            if (conf > confs[b]) confs[b] = conf
+        }
+    }
+
+    private fun onOther(o: OtherSound) {
+        val first = ((delayOffsetMs + skippedMs + o.startMs) / 1000 / bucketSec).toInt()
+        val last = ((delayOffsetMs + skippedMs + o.startMs + o.durationMs - 1) / 1000 / bucketSec).toInt()
+        for (b in first..last) {
+            ensure(b + 1)
+            others[b] = (others[b].toInt() or o.kind).toByte()
         }
     }
 
@@ -112,6 +126,8 @@ class NightRecorder(
             val n = max(size, levels.size * 2)
             levels = levels.copyOf(n)
             amps = amps.copyOf(n)
+            others = others.copyOf(n)
+            confs = confs.copyOf(n)
         }
     }
 
@@ -165,6 +181,8 @@ class NightRecorder(
             amps = amps.copyOf(count),
             tags = tags,
             clips = clips.sortedBy { it.offsetSec },
+            others = others.copyOf(count),
+            conf = confs.copyOf(count),
         )
     }
 
