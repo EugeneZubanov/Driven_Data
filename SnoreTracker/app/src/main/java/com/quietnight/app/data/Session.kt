@@ -23,6 +23,9 @@ object Level {
 
 data class Clip(val offsetSec: Int, val file: String, val level: Int, val amp: Int)
 
+/** A stretch of the night with no audio (microphone in use elsewhere), in seconds from the start. */
+data class Gap(val fromSec: Int, val toSec: Int)
+
 /**
  * One recorded night. The timeline is a list of fixed-length buckets, each holding the strongest
  * snoring level heard in it and its loudness in dB above the room's noise floor.
@@ -37,6 +40,10 @@ class Session(
     val tags: List<String>,
     val clips: List<Clip>,
     val demo: Boolean = false,
+    /** When the recording ended unexpectedly (app closed by the phone), or 0 if it was stopped normally. */
+    val interruptedAtMs: Long = 0L,
+    /** Stretches without audio; they count as quiet on the timeline. */
+    val gaps: List<Gap> = emptyList(),
 ) {
     val durationSec: Int get() = ((endMs - startMs) / 1000).toInt()
 
@@ -79,6 +86,8 @@ class Session(
             }
         })
         put("demo", demo)
+        if (interruptedAtMs > 0) put("interruptedAt", interruptedAtMs)
+        if (gaps.isNotEmpty()) put("gaps", JSONArray().also { arr -> gaps.forEach { arr.put(JSONArray().put(it.fromSec).put(it.toSec)) } })
     }
 
     companion object {
@@ -87,6 +96,7 @@ class Session(
         fun fromJson(o: JSONObject): Session {
             val tags = o.optJSONArray("tags") ?: JSONArray()
             val clips = o.optJSONArray("clips") ?: JSONArray()
+            val gaps = o.optJSONArray("gaps") ?: JSONArray()
             return Session(
                 id = o.getString("id"),
                 startMs = o.getLong("start"),
@@ -100,6 +110,8 @@ class Session(
                     Clip(c.getInt("t"), c.getString("f"), c.getInt("l"), c.getInt("a"))
                 },
                 demo = o.optBoolean("demo", false),
+                interruptedAtMs = o.optLong("interruptedAt", 0L),
+                gaps = List(gaps.length()) { gaps.getJSONArray(it).let { g -> Gap(g.getInt(0), g.getInt(1)) } },
             )
         }
     }

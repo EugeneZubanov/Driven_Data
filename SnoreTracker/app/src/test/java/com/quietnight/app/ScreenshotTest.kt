@@ -15,7 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.unit.dp
 import com.quietnight.app.ui.NightCalendar
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.github.takahirom.roborazzi.captureScreenRoboImage
+import androidx.compose.ui.test.performTouchInput
+import com.quietnight.app.audio.MicCheckState
 import com.quietnight.app.audio.RecState
+import com.quietnight.app.audio.RecordingPolicy
 import com.quietnight.app.data.DemoData
 import com.quietnight.app.data.Prefs
 import com.quietnight.app.ui.Palette
@@ -58,6 +62,50 @@ class ScreenshotTest {
         RecordScreen(
             Prefs(), RecState(recording = true, startMs = now - 3 * 3600_000L, delayMs = 0, listening = true, dbAboveFloor = 14f, eventCount = 212),
             null, {}, {}, {}, {}, nowMs = { now },
+        )
+    }
+
+    @Test fun recordChecks() = shot("record-checks") {
+        RecordScreen(
+            Prefs(), RecState(notice = "Your last recording was cut short at 03:12, probably because the phone closed the app. The night up to then was kept.", noticeSessionId = "s1"),
+            null, {}, {}, {}, {}, nowMs = { now },
+            batteryExempt = false,
+            mic = MicCheckState(running = true, level = 0.7f, heard = true),
+        )
+    }
+
+    @Test fun recordWarnings() {
+        shot("record-warnings") {
+            RecordScreen(
+                Prefs(), RecState(), null, {}, {}, {}, {}, nowMs = { now },
+                startWarnings = { RecordingPolicy.preflightWarnings(23, charging = false, freeBytes = 10_000_000) },
+                mic = MicCheckState(done = true, heard = false),
+            )
+        }
+        compose.onNodeWithText("Start").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Start anyway").assertExists()
+        // The dialog is its own window, so capture the whole screen.
+        captureScreenRoboImage("build/shots/record-warnings.png")
+    }
+
+    @Test fun recordingPaused() {
+        shot("recording-paused") {
+            RecordScreen(
+                Prefs(), RecState(recording = true, startMs = now - 5 * 3600_000L, listening = true, micPaused = true, gapSec = 840, eventCount = 97),
+                null, {}, {}, {}, {}, nowMs = { now },
+            )
+        }
+        // A short tap on Stop only shows the hint; the night keeps recording.
+        compose.onNodeWithText("Hold to stop").performTouchInput { down(center); up() }
+        compose.mainClock.advanceTimeBy(500)
+        compose.onRoot().captureRoboImage("build/shots/recording-paused.png")
+    }
+
+    @Test fun recordingDimmed() = shot("recording-dimmed") {
+        RecordScreen(
+            Prefs(), RecState(recording = true, startMs = now - 3 * 3600_000L, listening = true),
+            null, {}, {}, {}, {}, nowMs = { now }, dimAfterMs = 0,
         )
     }
 

@@ -39,7 +39,7 @@ import com.quietnight.app.audio.RecordingService
 import com.quietnight.app.data.DemoData
 import com.quietnight.app.ui.Palette
 import com.quietnight.app.ui.QuietNightTheme
-import com.quietnight.app.ui.RecordScreen
+import com.quietnight.app.ui.RecordTab
 import com.quietnight.app.ui.ResultsListScreen
 import com.quietnight.app.ui.SessionDetailScreen
 import com.quietnight.app.ui.SettingsScreen
@@ -49,6 +49,8 @@ import com.quietnight.app.ui.rememberDataActions
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Keep any night that was cut short because the app was closed while recording.
+        RecordingService.recoverInterrupted(application as QuietNightApp)
         setContent { QuietNightTheme { AppRoot(application as QuietNightApp) } }
     }
 }
@@ -64,7 +66,8 @@ private fun AppRoot(app: QuietNightApp) {
     var detailId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-        if (granted[Manifest.permission.RECORD_AUDIO] == true) RecordingService.start(context)
+        // start() explains on the Record tab if the microphone was refused.
+        if (granted.isNotEmpty()) RecordingService.start(context)
     }
     val start = {
         val needed = buildList {
@@ -130,12 +133,11 @@ private fun AppRoot(app: QuietNightApp) {
                         clipFile = { app.repository.clipFile(detail.id, it) },
                     )
                 }
-                tab == 0 -> RecordScreen(
+                tab == 0 -> RecordTab(
                     prefs = prefs,
                     rec = rec,
                     lastSession = sessions.firstOrNull { !it.demo },
                     onStart = start,
-                    onStop = { RecordingService.stop(context) },
                     onPrefs = app.settings::update,
                     onOpenSession = { tab = 1; detailId = it },
                 )

@@ -32,6 +32,8 @@ class NightRecorder(
     private var levels = ByteArray(4096)
     private var amps = ByteArray(4096)
     private var totalSamples = 0L
+    /** Time with no audio (see [skip]) since listening began; shifts detector times onto the night's clock. */
+    private var skippedMs = 0L
 
     var eventCount = 0
         private set
@@ -61,12 +63,26 @@ class NightRecorder(
         }
     }
 
+    /**
+     * Moves the night's clock on by [ms] without audio, e.g. while a phone call holds the
+     * microphone. Those buckets stay quiet and the timeline keeps matching the wall clock.
+     */
+    fun skip(ms: Long) {
+        val n = ms * sampleRate / 1000
+        if (n <= 0) return
+        val before = totalSamples
+        totalSamples += n
+        if (totalSamples > delaySamples) skippedMs += (totalSamples - maxOf(before, delaySamples)) * 1000 / sampleRate
+        // The audio ring no longer lines up with the buckets around the gap; start clean.
+        for (r in ring) r.fill(0)
+    }
+
     private fun onSnore(e: SnoreEvent) {
         eventCount++
         val level = Level.fromDb(e.dbAboveFloor).toByte()
         val amp = e.dbAboveFloor.toInt().coerceIn(0, 100).toByte()
-        val first = ((delayOffsetMs + e.startMs) / 1000 / bucketSec).toInt()
-        val last = ((delayOffsetMs + e.startMs + e.durationMs - 1) / 1000 / bucketSec).toInt()
+        val first = ((delayOffsetMs + skippedMs + e.startMs) / 1000 / bucketSec).toInt()
+        val last = ((delayOffsetMs + skippedMs + e.startMs + e.durationMs - 1) / 1000 / bucketSec).toInt()
         for (b in first..last) {
             ensure(b + 1)
             if (level > levels[b]) levels[b] = level
