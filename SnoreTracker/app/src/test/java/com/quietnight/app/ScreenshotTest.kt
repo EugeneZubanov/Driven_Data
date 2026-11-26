@@ -8,6 +8,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.foundation.layout.Column
@@ -20,7 +22,16 @@ import androidx.compose.ui.test.performTouchInput
 import com.quietnight.app.audio.MicCheckState
 import com.quietnight.app.audio.RecState
 import com.quietnight.app.audio.RecordingPolicy
+import com.quietnight.app.data.Clip
 import com.quietnight.app.data.DemoData
+import com.quietnight.app.data.NightStats
+import com.quietnight.app.data.Session
+import com.quietnight.app.ui.ClipPlayer
+import com.quietnight.app.ui.Card
+import com.quietnight.app.ui.EditNightFields
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
+import com.quietnight.app.ui.clock
 import com.quietnight.app.data.Prefs
 import com.quietnight.app.ui.Palette
 import com.quietnight.app.ui.QuietNightTheme
@@ -109,10 +120,49 @@ class ScreenshotTest {
         )
     }
 
-    @Test fun results() = shot("results") { ResultsListScreen(sessions) {} }
+    @Test fun results() = shot("results") { ResultsListScreen(sessions, nowMs = now) {} }
 
     @Test fun detail() = shot("detail") {
-        SessionDetailScreen(sessions.maxBy { it.score }, {}, {}, null, {}, { File(it) })
+        SessionDetailScreen(sessions.maxBy { it.score }, {}, {}, null, {}, { File(it) }, history = sessions)
+    }
+
+    /** Loudest demo night with a few clips added, the second one shown playing. */
+    private fun withClips(): Session {
+        val s = sessions.maxBy { it.score }
+        val loud = s.levels.indices.filter { s.levels[it] >= 2 }
+        val picks = listOf(loud[loud.size / 8], loud[loud.size / 2], loud[loud.size * 7 / 8])
+        val clips = picks.map { Clip(it * s.bucketSec, "c$it.wav", s.levels[it].toInt(), s.amps[it].toInt()) }
+        return Session(s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags, clips, s.demo, note = "Went to bed late after a dinner out.")
+    }
+
+    @Test fun detailClips() {
+        val s = withClips()
+        val player = ClipPlayer().apply { showForPreview(s.clips[1].file, 0.4f) }
+        shot("detail-clips") { SessionDetailScreen(s, {}, {}, null, {}, { File(it) }, history = sessions, onSave = {}, player = player) }
+        compose.onAllNodesWithContentDescription("Play clip from", substring = true, useUnmergedTree = true).onLast().performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/detail-clips-list.png")
+    }
+
+    @Test fun detailZoomed() {
+        val s = withClips()
+        val hour = NightStats.hourStarts(s)[3]
+        shot("detail-zoomed") { SessionDetailScreen(s, {}, {}, null, {}, { File(it) }, history = sessions, onSave = {}) }
+        compose.onNodeWithText(clock(hour)).performClick()
+        compose.onRoot().captureRoboImage("build/shots/detail-zoomed.png")
+    }
+
+    /** The edit dialog's fields (a real dialog window does not render under Robolectric). */
+    @Test fun editNight() = shot("edit-night") {
+        val s = withClips()
+        Card(Modifier.padding(20.dp)) {
+            EditNightFields(s, setOf("f:Late shift"), s.tags.toSet() + "f:Late shift", {}, s.note, {})
+        }
+    }
+
+    @Test fun resultsFiltered() {
+        shot("results-filtered") { ResultsListScreen(sessions, nowMs = now) {} }
+        compose.onNodeWithText("Alcohol").performClick()
+        compose.onRoot().captureRoboImage("build/shots/results-filtered.png")
     }
 
     @Test fun trends() = shot("trends") { TrendsScreen(sessions) }

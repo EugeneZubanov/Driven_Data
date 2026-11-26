@@ -131,6 +131,9 @@ private fun AppRoot(app: QuietNightApp) {
                         onNewer = sessions.getOrNull(index - 1)?.let { s -> { detailId = s.id } },
                         onDelete = { detailId = null; app.repository.delete(detail.id) },
                         clipFile = { app.repository.clipFile(detail.id, it) },
+                        history = sessions,
+                        onSave = app.repository::save,
+                        customTags = prefs.customTags,
                     )
                 }
                 tab == 0 -> RecordTab(
@@ -141,7 +144,11 @@ private fun AppRoot(app: QuietNightApp) {
                     onPrefs = app.settings::update,
                     onOpenSession = { tab = 1; detailId = it },
                 )
-                tab == 1 -> ResultsListScreen(sessions) { detailId = it }
+                tab == 1 -> ResultsListScreen(
+                    sessions,
+                    onDelete = app.repository::trash,
+                    onUndoDelete = { app.repository.restore(it) },
+                ) { detailId = it }
                 tab == 2 -> TrendsScreen(sessions, onOpenNight = { tab = 1; detailId = it })
                 else -> {
                     val data = rememberDataActions(app)

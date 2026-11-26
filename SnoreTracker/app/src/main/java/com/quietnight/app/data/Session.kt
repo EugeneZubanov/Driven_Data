@@ -44,6 +44,8 @@ class Session(
     val interruptedAtMs: Long = 0L,
     /** Stretches without audio; they count as quiet on the timeline. */
     val gaps: List<Gap> = emptyList(),
+    /** Short free-text note added after the night; empty when none. */
+    val note: String = "",
 ) {
     val durationSec: Int get() = ((endMs - startMs) / 1000).toInt()
 
@@ -88,7 +90,12 @@ class Session(
         put("demo", demo)
         if (interruptedAtMs > 0) put("interruptedAt", interruptedAtMs)
         if (gaps.isNotEmpty()) put("gaps", JSONArray().also { arr -> gaps.forEach { arr.put(JSONArray().put(it.fromSec).put(it.toSec)) } })
+        if (note.isNotEmpty()) put("note", note)
     }
+
+    /** Same night with tags and note changed after the fact. */
+    fun withEdits(tags: List<String>, note: String): Session =
+        Session(id, startMs, endMs, bucketSec, levels, amps, tags, clips, demo, interruptedAtMs, gaps, note)
 
     companion object {
         val WEIGHTS = floatArrayOf(0.4f, 1.0f, 2.0f)
@@ -112,6 +119,7 @@ class Session(
                 demo = o.optBoolean("demo", false),
                 interruptedAtMs = o.optLong("interruptedAt", 0L),
                 gaps = List(gaps.length()) { gaps.getJSONArray(it).let { g -> Gap(g.getInt(0), g.getInt(1)) } },
+                note = o.optString("note", ""),
             )
         }
     }

@@ -130,7 +130,7 @@ object Backup {
                         if (!from.renameTo(to)) from.copyTo(to, overwrite = true)
                     }
                 }
-                save(Session(s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags, clips, demo = false))
+                save(Session(s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags, clips, demo = false, interruptedAtMs = s.interruptedAtMs, gaps = s.gaps, note = s.note))
                 added++
             }
             return RestoreResult(added, skipped, invalid)
