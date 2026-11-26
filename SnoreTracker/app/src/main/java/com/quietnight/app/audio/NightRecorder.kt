@@ -106,10 +106,12 @@ class NightRecorder(
         val n = ms * sampleRate / 1000
         if (n <= 0) return
         val before = totalSamples
-        // Breaths on either side of the gap must not be paired into a rhythm, and every event
+        // Breaths on either side of a real gap must not be paired into a rhythm, and every event
         // the detector reports from now on then starts after the gap, so [skippedMs] at report
-        // time is also the offset in force when the snore happened.
-        detector.interrupt()
+        // time is also the offset in force when the snore happened. A short skip (a read overrun,
+        // a moment of all-zero input) keeps the rhythm: breaths stay plausibly spaced, and an
+        // event straddling it lands at most [INTERRUPT_MS] off, within one bucket or the next.
+        if (ms >= INTERRUPT_MS) detector.interrupt()
         val beforeBucket = (before / bucketSamples).toInt()
         val beforePos = (clipCount % clipBucketSamples).toInt()
         val newBucket = ((before + n) / bucketSamples).toInt()
@@ -229,6 +231,8 @@ class NightRecorder(
 
     companion object {
         private const val RING_BUCKETS = 5
+        /** Skips at least this long reset the detector's rhythm. */
+        const val INTERRUPT_MS = 5_000L
         /** Clips and the clip ring are kept at this rate (or the capture rate, if lower). */
         const val CLIP_RATE = 16000
 
