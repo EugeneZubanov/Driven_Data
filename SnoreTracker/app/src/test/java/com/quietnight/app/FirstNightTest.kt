@@ -81,6 +81,7 @@ class FirstNightTest {
         RecordingEnv.sleep = { clockMs.addAndGet(it); Thread.sleep(1) }
         RecordingEnv.battery = { 90 to true }
         RecordingEnv.audioSupported = { false }
+        RecordingEnv.audioSink = { it } // simulated time runs far faster than the async encoder queue
         RecordingService.clearFinished()
         RecordingService.clearNotice()
     }
