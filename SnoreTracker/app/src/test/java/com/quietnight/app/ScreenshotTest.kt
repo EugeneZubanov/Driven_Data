@@ -22,6 +22,8 @@ import androidx.compose.ui.test.performTouchInput
 import com.quietnight.app.audio.MicCheckState
 import com.quietnight.app.audio.RecState
 import com.quietnight.app.audio.RecordingPolicy
+import com.quietnight.app.audio.WakeSetting
+import androidx.compose.ui.test.performScrollTo
 import com.quietnight.app.data.Clip
 import com.quietnight.app.data.DemoData
 import com.quietnight.app.data.NightStats
@@ -111,6 +113,40 @@ class ScreenshotTest {
         compose.onNodeWithText("Hold to stop").performTouchInput { down(center); up() }
         compose.mainClock.advanceTimeBy(500)
         compose.onRoot().captureRoboImage("build/shots/recording-paused.png")
+    }
+
+    @Test fun recordWake() {
+        shot("record-wake") {
+            RecordScreen(
+                Prefs(), RecState(), null, {}, {}, {}, {}, nowMs = { now },
+                batteryExempt = false, wake = WakeSetting(enabled = true, hour = 6, minute = 45),
+            )
+        }
+        compose.onNodeWithText("Wake-up alarm").performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/record-wake.png")
+    }
+
+    @Test fun recordOemHelp() {
+        shot("record-oem-help") {
+            RecordScreen(Prefs(), RecState(), null, {}, {}, {}, {}, nowMs = { now }, batteryExempt = false, manufacturer = "Xiaomi")
+        }
+        compose.onNodeWithText("Steps for my phone").performClick()
+        compose.waitForIdle()
+        captureScreenRoboImage("build/shots/record-oem-help.png")
+    }
+
+    @Test fun recordingTestRun() = shot("recording-test-run") {
+        RecordScreen(
+            Prefs(), RecState(recording = true, startMs = now - 130_000L, listening = true, dbAboveFloor = 9f, eventCount = 4, testRun = true),
+            null, {}, {}, {}, {}, nowMs = { now },
+        )
+    }
+
+    @Test fun recordingWithWake() = shot("recording-wake") {
+        RecordScreen(
+            Prefs(), RecState(recording = true, startMs = now - 2 * 3600_000L, listening = true, wakeAtMs = now + 5 * 3600_000L),
+            null, {}, {}, {}, {}, nowMs = { now },
+        )
     }
 
     @Test fun recordingDimmed() = shot("recording-dimmed") {
