@@ -115,6 +115,19 @@ class DetectorCorpusTest {
         return thresholds.map { score(scene, run(pcm, it, legacy = false)) } + score(scene, run(pcm, 8f, legacy = true))
     }
 
+    /**
+     * Scenarios are independent, so they run on up to 3 threads (results kept in order). Three, not
+     * more, because a 4-minute scene at 48 kHz holds ~90 MB while it is generated.
+     */
+    private fun <T> parallel(items: List<Scenario>, f: (Scenario) -> T): List<T> {
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(minOf(3, Runtime.getRuntime().availableProcessors()).coerceAtLeast(1))
+        try {
+            return items.map { s -> pool.submit<T> { f(s) } }.map { it.get() }
+        } finally {
+            pool.shutdown()
+        }
+    }
+
     private fun fmt(sc: Score) =
         if (sc.truth > 0) "%3d/%-3d %4.0f%%  fa %5.1fs".format(sc.hits, sc.truth, 100 * sc.hitRate, sc.falseSec)
         else "ev %3d     fa %5.1fs".format(sc.events, sc.falseSec)
@@ -123,7 +136,7 @@ class DetectorCorpusTest {
         val out = StringBuilder()
         out.appendLine("Snore detector on the synthetic corpus (threshold 8 dB = normal sensitivity)")
         out.appendLine("%-30s | %-23s | %-23s | %-13s | %s".format("scenario", "new: hits  rate  false", "old: hits  rate  false", "M/L/H local", "M/L/H baseline"))
-        val all = (snoreScenarios + distractors).associate { it.name to evaluate(it) }
+        val all = parallel(snoreScenarios + distractors) { evaluate(it) }.let { r -> (snoreScenarios + distractors).map { it.name }.zip(r).toMap() }
         val results = all.mapValues { it.value[1] }
         for (s in snoreScenarios + distractors) {
             val new = all.getValue(s.name)[1]
@@ -182,9 +195,13 @@ class DetectorCorpusTest {
         val problems = ArrayList<String>()
         for (r in intArrayOf(44100, 48000)) {
             var hits = 0; var truth = 0; var fa = 0.0
-            for (s in snoreScenarios + distractors) {
+            val scores = parallel(snoreScenarios + distractors) { s ->
                 val scene = s.build(r)
-                val sc = score(scene, run(scene.pcm(s.gain), 8f, legacy = false, rate = r))
+                val pcm = scene.pcm(s.gain)
+                val events = run(pcm, 8f, legacy = false, rate = r)
+                score(scene, events)
+            }
+            for ((s, sc) in (snoreScenarios + distractors).zip(scores)) {
                 hits += sc.hits; truth += sc.truth; if (!s.snoring) fa += sc.falseSec
                 problems += gateProblems(s, sc).map { "$r Hz $it" }
                 if (sc.hitRate < 0.95 || sc.falseSec > 0) out.appendLine("  $r Hz %-30s %s".format(s.name, fmt(sc)))

@@ -38,6 +38,31 @@ data class OtherSound(val startMs: Long, val durationMs: Long, val kind: Int, va
 }
 
 /**
+ * Running counts of what the detector saw, for tuning on real nights. Read on the audio thread
+ * (or after recording); plain fields, no allocation while counting.
+ */
+class DetectorStats {
+    var frames = 0L
+    var clippedFrames = 0L
+    /** Low-pitched bursts that ended, and what became of them. */
+    var bursts = 0
+    var tooShort = 0
+    var tooLong = 0
+    var lowShare = 0
+    var speechLike = 0
+    var machineLike = 0
+    /** Passed every per-burst test; [reported] of them were confirmed by a breathing rhythm. */
+    var candidates = 0
+    var reported = 0
+    /** Candidates peaking less than 3 dB above the threshold. */
+    var weak = 0
+    /** Low-pitched, breath-length sounds that peaked up to 4 dB short of the threshold. */
+    var nearMisses = 0
+    /** Noise floor sampled once a second, in 1 dB bins from −100 to 0 dBFS. */
+    val floorHistogram = IntArray(101)
+}
+
+/**
  * Streaming snore detector. Pure Kotlin so it can be unit-tested off-device.
  *
  * Per 50 ms frame it measures:
@@ -106,6 +131,12 @@ class SnoreDetector(
     @Volatile
     var currentDbAboveFloor = 0f
         private set
+
+    /** Counts for diagnostics; see [DetectorStats]. */
+    val stats = DetectorStats()
+    private var nearStart = -1L
+    private var nearLast = -1L
+    private var nearPeak = 0f
 
     /** Optional: loud stretches that were not snoring. Never changes what counts as a snore. */
     var onOther: ((OtherSound) -> Unit)? = null
@@ -180,6 +211,8 @@ class SnoreDetector(
         val lowRatio = if (sumAll > 0) (sumLow / sumAll).toFloat() else 0f
         val rough = if (sumEnv2 > 0) (sumMod2 / sumEnv2).toFloat() else 0f
         val clipping = clipped * 50 > frameSize // more than 2 % of samples at full scale
+        stats.frames++
+        if (clipping) stats.clippedFrames++
         val nowMs = frameIndex * frameMs
         frameIndex++
 
@@ -217,7 +250,20 @@ class SnoreDetector(
         }
         if (burstStart >= 0) trackDips(db)
         if (onOther != null) trackLoud(nowMs, above)
+        trackNear(nowMs, above, lowRatio)
         expireRhythm(nowMs)
+    }
+
+    private fun trackNear(nowMs: Long, above: Float, lowRatio: Float) {
+        if (lowRatio >= LOW_RATIO && above >= thresholdDb - 4f) {
+            if (nearStart < 0) { nearStart = nowMs; nearPeak = above }
+            nearPeak = max(nearPeak, above)
+            nearLast = nowMs
+        } else if (nearStart >= 0 && nowMs - nearLast > 200) {
+            val dur = nearLast + frameMs - nearStart
+            if (nearPeak < thresholdDb && dur in MIN_BURST_MS..MAX_BURST_MS) stats.nearMisses++
+            nearStart = -1
+        }
     }
 
     private fun trackLoud(nowMs: Long, above: Float) {
@@ -248,6 +294,7 @@ class SnoreDetector(
     private fun updateFloor(db: Float) {
         if (db < blockMin) blockMin = db
         if (++blockFrames == FLOOR_BLOCK_FRAMES) {
+            if (!floorDb.isNaN()) stats.floorHistogram[(floorDb.toInt() + 100).coerceIn(0, 100)]++
             blockMins[blockIndex] = blockMin
             blockIndex = (blockIndex + 1) % FLOOR_BLOCKS
             blockMin = Float.POSITIVE_INFINITY
@@ -276,19 +323,21 @@ class SnoreDetector(
 
 
     private fun closeBurst(startMs: Long, durationMs: Long, peak: Float) {
-        if (durationMs < MIN_BURST_MS || durationMs > MAX_BURST_MS) return
+        stats.bursts++
+        if (durationMs < MIN_BURST_MS) { stats.tooShort++; return }
+        if (durationMs > MAX_BURST_MS) { stats.tooLong++; return }
         val frames = max(1, burstActiveFrames)
         // Frames need a 0.5 low-band share, the burst as a whole 0.6: broadband noise hovering
         // around 0.5 (a fan before the floor adapts) flickers into short bursts that fail this.
-        if (burstLowSum / frames < BURST_LOW_RATIO) return
+        if (burstLowSum / frames < BURST_LOW_RATIO) { stats.lowShare++; return }
         val rough = burstRoughSum / frames
         val dipsPerSec = burstDips * 1000f / durationMs
         // Syllable-like chopping without the flutter of a snore: probably talking. On the synthetic
         // corpus speech scores 0.02–0.05, pulsed snores ~0.3, hiss-like snores ~0.1, and snores
         // overlapped by talking 0.13–0.26. Creaky voice may well be rough too; unverified.
-        if (burstDips >= 1 && dipsPerSec >= 1.5f && rough < ROUGH_SNORE) { loudTalk = true; return }
+        if (burstDips >= 1 && dipsPerSec >= 1.5f && rough < ROUGH_SNORE) { loudTalk = true; stats.speechLike++; return }
         // Chopped up at a syllable rate (~3+ per second) is talking even if the voice is creaky.
-        if (burstDips >= 3 && dipsPerSec >= 2.5f) { loudTalk = true; return }
+        if (burstDips >= 3 && dipsPerSec >= 2.5f) { loudTalk = true; stats.speechLike++; return }
         loudSnore = true
         // A rough 0–1 score from how clearly the burst shows the snore traits; not calibrated.
         var conf = 0.4f
@@ -308,7 +357,9 @@ class SnoreDetector(
         candReported[slot] = false
         candCount++
 
-        if (mechanical(slot)) return
+        if (mechanical(slot)) { stats.machineLike++; return }
+        stats.candidates++
+        if (peak < thresholdDb + 3f) stats.weak++
         // Already snoring: report a candidate that falls on the rhythm (or one breath later).
         if (periodMs > 0 && lastSnoreStart >= 0) {
             val gap = startMs - lastSnoreStart
@@ -375,6 +426,7 @@ class SnoreDetector(
     private fun report(slot: Int) {
         if (candReported[slot]) return
         candReported[slot] = true
+        stats.reported++
         val base = max(min(baselineDb, floorDb), MIN_FLOOR_DB)
         val aboveBase = max(candPeakDb[slot] - base, candPeak[slot])
         onEvent(SnoreEvent(candStart[slot], candDur[slot], aboveBase, candPeak[slot], candConf[slot]))
@@ -388,6 +440,7 @@ class SnoreDetector(
     fun interrupt() {
         burstStart = -1
         loudStart = -1
+        nearStart = -1
         candCount = 0
         periodMs = 0
         lastSnoreStart = -1
@@ -400,7 +453,7 @@ class SnoreDetector(
         }
     }
 
-    private class Biquad(
+    internal class Biquad(
         private val b0: Double, private val b1: Double, private val b2: Double,
         private val a1: Double, private val a2: Double,
     ) {
@@ -419,9 +472,9 @@ class SnoreDetector(
         companion object {
             private const val Q = 0.7071
 
-            fun lowPass(sampleRate: Int, hz: Double): Biquad {
+            fun lowPass(sampleRate: Int, hz: Double, q: Double = Q): Biquad {
                 val w = 2 * PI * hz / sampleRate
-                val alpha = sin(w) / (2 * Q)
+                val alpha = sin(w) / (2 * q)
                 val c = cos(w)
                 val a0 = 1 + alpha
                 return Biquad((1 - c) / 2 / a0, (1 - c) / a0, (1 - c) / 2 / a0, -2 * c / a0, (1 - alpha) / a0)
