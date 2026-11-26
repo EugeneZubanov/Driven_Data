@@ -178,6 +178,16 @@ class ResultsLogicTest {
         assertTrue(repo.restore("b"))
     }
 
+    @Test fun clipPlayerReportsMissingFileWithoutPlaying() {
+        val p = com.quietnight.app.ui.ClipPlayer()
+        p.play("c1.wav", File(tmp.root, "missing.wav"))
+        assertNull(p.playing)
+        assertEquals("c1.wav", p.failed)
+        p.stop(); p.stop() // safe to call twice
+        assertNull(p.playing)
+        assertEquals(0f, p.progress)
+    }
+
     @Test fun editedSessionReplacesOnSave() {
         val repo = SessionRepository(tmp.root)
         val s = night("1", "a")
