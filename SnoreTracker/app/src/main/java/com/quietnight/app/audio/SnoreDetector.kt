@@ -52,7 +52,9 @@ class SnoreDetector(
     // Envelope of the low band, averaged down to ~800 Hz, then band-passed at 15–70 Hz.
     private val envDecim = max(1, sampleRate / 800)
     private val modHighPass = Biquad.highPass(sampleRate / envDecim, 15.0)
-    private val modLowPass = Biquad.lowPass(sampleRate / envDecim, 70.0)
+    // Two sections so the 100+ Hz ripple of a deep voice does not leak in.
+    private val modLowPass1 = Biquad.lowPass(sampleRate / envDecim, 70.0)
+    private val modLowPass2 = Biquad.lowPass(sampleRate / envDecim, 70.0)
     private var envPos = 0
     private var envAcc = 0.0
     private var sumEnv2 = 0.0
@@ -112,7 +114,7 @@ class SnoreDetector(
             envAcc += abs(low)
             if (++envPos == envDecim) {
                 val e = envAcc / envDecim
-                val m = modLowPass.process(modHighPass.process(e))
+                val m = modLowPass2.process(modLowPass1.process(modHighPass.process(e)))
                 sumEnv2 += e * e
                 sumMod2 += m * m
                 envPos = 0
@@ -140,7 +142,7 @@ class SnoreDetector(
         frameIndex++
 
         updateFloor(db)
-        // Never measure against less than ~2 LSB of noise: on a very quiet or digitally silent
+        // Never measure against less than ~1.4 LSB of noise: on a very quiet or digitally silent
         // input, a few quantisation steps would otherwise look like loud events.
         val above = db - max(floorDb, MIN_FLOOR_DB)
         currentDbAboveFloor = above
@@ -162,7 +164,7 @@ class SnoreDetector(
                 burstPeak = max(burstPeak, above)
             }
             burstActiveFrames++
-            burstLowSum += if (clipping) max(lowRatio, LOW_RATIO) else lowRatio
+            burstLowSum += if (clipping) max(lowRatio, BURST_LOW_RATIO) else lowRatio
             burstRoughSum += rough
             burstLastActive = nowMs
         } else if (burstStart >= 0 && nowMs - burstLastActive > 200) {
@@ -208,13 +210,15 @@ class SnoreDetector(
     private fun closeBurst(startMs: Long, durationMs: Long, peak: Float) {
         if (durationMs < MIN_BURST_MS || durationMs > MAX_BURST_MS) return
         val frames = max(1, burstActiveFrames)
-        if (burstLowSum / frames < LOW_RATIO) return
+        // Frames need a 0.5 low-band share, the burst as a whole 0.6: broadband noise hovering
+        // around 0.5 (a fan before the floor adapts) flickers into short bursts that fail this.
+        if (burstLowSum / frames < BURST_LOW_RATIO) return
         val rough = burstRoughSum / frames
         val dipsPerSec = burstDips * 1000f / durationMs
         // Syllable-like chopping without the flutter of a snore: probably talking. On the synthetic
         // corpus speech scores 0.02–0.05, pulsed snores ~0.3, hiss-like snores ~0.1, and snores
         // overlapped by talking 0.13–0.26. Creaky voice may well be rough too; unverified.
-        if (burstDips >= 2 && dipsPerSec >= 1.5f && rough < ROUGH_SNORE) return
+        if (burstDips >= 1 && dipsPerSec >= 1.5f && rough < ROUGH_SNORE) return
         addCandidate(startMs, durationMs, peak)
     }
 
@@ -316,8 +320,9 @@ class SnoreDetector(
 
     private companion object {
         const val CLIP = 32000
-        const val MIN_FLOOR_DB = -84f
+        const val MIN_FLOOR_DB = -87f
         const val LOW_RATIO = 0.5f
+        const val BURST_LOW_RATIO = 0.6f
         const val DIP_DB = 6f
         const val ROUGH_SNORE = 0.08f
         const val MIN_BURST_MS = 350L

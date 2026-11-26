@@ -116,7 +116,7 @@ class Scene(val seconds: Double, seed: Int, val rate: Int = 16000) {
 
     /**
      * Inspiratory snoring: one snore per breath, [periodSec] at the start drifting to [periodEndSec],
-     * ±12 % breath-to-breath jitter, ±[jitterDb] loudness jitter, ~8 % of breaths silent.
+     * ±[periodJitter] breath-to-breath jitter, ±[jitterDb] loudness jitter, ~8 % of breaths silent.
      * Source: a pulse train of [pulseHz] (±15 % per breath, slight wobble) through three resonances
      * (pharynx ~150 Hz, ~480 Hz, ~1 kHz). [noisy] uses turbulent noise with weak pulsing instead,
      * a model of snores that are more hiss than flutter.
@@ -124,12 +124,13 @@ class Scene(val seconds: Double, seed: Int, val rate: Int = 16000) {
     fun snoring(
         fromSec: Double, toSec: Double, rms: Double, periodSec: Double = 4.0, periodEndSec: Double = periodSec,
         pulseHz: Double = 35.0, noisy: Boolean = false, jitterDb: Double = 3.0,
+        periodJitter: Double = 0.12, minDur: Double = 0.6, maxDur: Double = 2.2,
     ) = apply {
         var t = fromSec + r(0.0, 1.0)
         while (true) {
             val frac = (t - fromSec) / (toSec - fromSec)
-            val p = (periodSec + (periodEndSec - periodSec) * frac) * r(0.88, 1.12)
-            val dur = (p * r(0.25, 0.38)).coerceIn(0.6, 2.2)
+            val p = (periodSec + (periodEndSec - periodSec) * frac) * r(1 - periodJitter, 1 + periodJitter)
+            val dur = (p * r(0.25, 0.38)).coerceIn(minDur, maxDur)
             if (t + dur > toSec) break
             if (rnd.nextDouble() >= 0.08) {
                 val amp = rms * Math.pow(10.0, r(-jitterDb, jitterDb) / 20)
@@ -332,6 +333,36 @@ class Scene(val seconds: Double, seed: Int, val rate: Int = 16000) {
                 c += r(2.0, 3.0)
             }
             t = c + r(15.0, 45.0)
+        }
+    }
+
+    /** Heavy breathing without snoring: broadband turbulent noise on both inhale and exhale. */
+    fun breathing(fromSec: Double, toSec: Double, rms: Double, periodSec: Double = 4.0) = apply {
+        var t = fromSec
+        while (t < toSec - periodSec) {
+            for ((off, d) in listOf(0.0 to periodSec * 0.35, periodSec * 0.42 to periodSec * 0.45)) {
+                val res = Reso(r(1200.0, 1800.0), 1500.0)
+                val s = seg(d)
+                for (i in s.indices) { val x = gauss(); s[i] = res.p(x) * 3 + 0.3 * x }
+                mix(t + off, s, rms * r(0.8, 1.1), 0.3, 0.4)
+            }
+            t += periodSec * r(0.9, 1.1)
+        }
+    }
+
+    /**
+     * A landline-style ringer: 400 + 450 Hz tones (so a 50 Hz beat), 0.4 s on, 0.2 off, 0.4 on,
+     * every 3 s. Low-pitched, rough and perfectly rhythmic: a known weak spot of a snore heuristic.
+     */
+    fun dualToneRinger(fromSec: Double, rings: Int, rms: Double) = apply {
+        var t = fromSec
+        repeat(rings) {
+            for (off in doubleArrayOf(0.0, 0.6)) {
+                val s = seg(0.4)
+                for (i in s.indices) { val tt = i.toDouble() / rate; s[i] = sin(2 * PI * 400 * tt) + sin(2 * PI * 450 * tt) }
+                mix(t + off, s, rms, 0.01, 0.01)
+            }
+            t += 3.0
         }
     }
 }

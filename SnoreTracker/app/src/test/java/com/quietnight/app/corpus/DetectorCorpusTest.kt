@@ -15,7 +15,8 @@ import java.io.File
 class DetectorCorpusTest {
     private val rate = 16000
 
-    class Scenario(val name: String, val snoring: Boolean, val gain: Double = 1.0, val build: () -> Scene)
+    /** [gated]: counted by the regression gates; false for known weak spots that are only reported. */
+    class Scenario(val name: String, val snoring: Boolean, val gain: Double = 1.0, val gated: Boolean = true, val build: () -> Scene)
 
     data class Score(val truth: Int, val hits: Int, val events: Int, val falseSec: Double, val levels: IntArray) {
         val hitRate get() = if (truth == 0) Double.NaN else hits.toDouble() / truth
@@ -27,6 +28,9 @@ class DetectorCorpusTest {
         Scenario("snoring, slow pulses 20/s", true) { Scene(180.0, 13).roomNoise().snoring(5.0, 180.0, 350.0, 4.5, pulseHz = 20.0) },
         Scenario("snoring, fast pulses 60/s", true) { Scene(180.0, 14).roomNoise().snoring(5.0, 180.0, 350.0, 3.5, pulseHz = 60.0) },
         Scenario("snoring, noise-like", true) { Scene(180.0, 15).roomNoise().snoring(5.0, 180.0, 350.0, noisy = true) },
+        Scenario("irregular breathing (+-25%)", true) { Scene(240.0, 24).roomNoise().snoring(5.0, 240.0, 350.0, periodJitter = 0.25) },
+        Scenario("short snores 0.4-0.7 s", true) { Scene(180.0, 25).roomNoise().snoring(5.0, 180.0, 350.0, 3.5, minDur = 0.4, maxDur = 0.7) },
+        Scenario("near-threshold snoring ~9 dB", true) { Scene(180.0, 26).roomNoise().snoring(5.0, 180.0, 100.0, jitterDb = 1.5) },
         Scenario("quiet snoring ~11 dB", true) { Scene(180.0, 16).roomNoise().snoring(5.0, 180.0, 125.0, jitterDb = 1.5) },
         Scenario("loud snoring", true) { Scene(180.0, 17).roomNoise().snoring(5.0, 180.0, 3000.0) },
         Scenario("clipping snoring", true) { Scene(180.0, 18).roomNoise().snoring(5.0, 180.0, 40000.0) },
@@ -52,6 +56,8 @@ class DetectorCorpusTest {
         Scenario("ticking clock", false) { Scene(120.0, 42).roomNoise().clock(800.0) },
         Scenario("phone notifications", false) { Scene(240.0, 43).roomNoise().notifications(0.0, 240.0, 1200.0) },
         Scenario("rain", false) { Scene(180.0, 44).roomNoise().rain(400.0) },
+        Scenario("heavy breathing, no snore", false) { Scene(180.0, 45).roomNoise().breathing(0.0, 180.0, 400.0) },
+        Scenario("dual-tone phone ringer x8", false, gated = false) { Scene(60.0, 46).roomNoise().dualToneRinger(10.0, 8, 1500.0) },
     )
 
     private fun run(pcm: ShortArray, threshold: Float, legacy: Boolean): List<SnoreEvent> {
@@ -109,8 +115,9 @@ class DetectorCorpusTest {
         for (s in snoreScenarios + distractors) {
             val new = all.getValue(s.name)[1]
             val old = all.getValue(s.name)[3]
-            out.appendLine("%-30s | %-23s | %-23s | %d/%d/%d".format(s.name, fmt(new), fmt(old), new.levels[1], new.levels[2], new.levels[3]))
+            out.appendLine("%-30s | %-23s | %-23s | %d/%d/%d".format(s.name + if (s.gated) "" else " *", fmt(new), fmt(old), new.levels[1], new.levels[2], new.levels[3]))
         }
+        out.appendLine("* known weak spot, reported but not gated")
         out.appendLine()
         out.appendLine("Sensitivity sweep (new detector): snore hit rate / distractor false-alarm seconds")
         for ((ti, label) in listOf("low 11 dB", "normal 8 dB", "high 5.5 dB").withIndex()) {
@@ -128,13 +135,13 @@ class DetectorCorpusTest {
 
         // Regression gates at normal sensitivity. Synthetic, so these only catch regressions.
         val problems = ArrayList<String>()
-        for (s in snoreScenarios) {
+        for (s in snoreScenarios.filter { it.gated }) {
             val sc = results.getValue(s.name)
             val minRate = 0.8
             if (sc.hitRate < minRate) problems += "${s.name}: hit rate ${sc.hitRate}"
             if (sc.falseSec > 3.0) problems += "${s.name}: ${sc.falseSec}s false alarms"
         }
-        for (s in distractors) {
+        for (s in distractors.filter { it.gated }) {
             val sc = results.getValue(s.name)
             if (sc.falseSec > 0.0) problems += "${s.name}: ${sc.falseSec}s false alarms"
         }
