@@ -389,7 +389,8 @@ fun TimelineChart(
                         for (clip in clips) {
                             val x = xOf(session.startMs + clip.offsetSec * 1000L + CLIP_MS / 2)
                             val isPlaying = clip.file == playingClip
-                            val color = Palette.levels[clip.level.coerceIn(1, 3)]
+                            val corrected = session.notSnoringMask.getOrElse(clip.offsetSec / session.bucketSec) { false }
+                            val color = if (corrected) NotSnoringColor else Palette.levels[clip.level.coerceIn(1, 3)]
                             if (isPlaying) drawCircle(Palette.Moon, tri * 1.25f, Offset(x, band / 2), style = Stroke(1.5.dp.toPx()))
                             val path = Path().apply {
                                 moveTo(x - tri / 1.4f, band / 2 - tri / 2)
