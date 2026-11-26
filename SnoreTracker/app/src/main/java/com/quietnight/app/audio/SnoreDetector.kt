@@ -400,7 +400,7 @@ class SnoreDetector(
         }
     }
 
-    private class Biquad(
+    internal class Biquad(
         private val b0: Double, private val b1: Double, private val b2: Double,
         private val a1: Double, private val a2: Double,
     ) {
@@ -419,9 +419,9 @@ class SnoreDetector(
         companion object {
             private const val Q = 0.7071
 
-            fun lowPass(sampleRate: Int, hz: Double): Biquad {
+            fun lowPass(sampleRate: Int, hz: Double, q: Double = Q): Biquad {
                 val w = 2 * PI * hz / sampleRate
-                val alpha = sin(w) / (2 * Q)
+                val alpha = sin(w) / (2 * q)
                 val c = cos(w)
                 val a0 = 1 + alpha
                 return Biquad((1 - c) / 2 / a0, (1 - c) / a0, (1 - c) / 2 / a0, -2 * c / a0, (1 - alpha) / a0)
