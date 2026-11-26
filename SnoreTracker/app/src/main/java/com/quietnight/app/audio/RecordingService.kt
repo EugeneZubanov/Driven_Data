@@ -172,6 +172,8 @@ class RecordingService : Service() {
         var finishedId: String? = null
         var problem: String? = null
         var stopReason: RecordingPolicy.StopReason? = null
+        var audioWriter: NightAudioWriter? = null
+        var audioNote: String? = null
         var notified = ""
         fun offsetNow() = RecordingEnv.elapsedMs() - startElapsed
         fun snapshot(): Session {
@@ -210,6 +212,11 @@ class RecordingService : Service() {
             // Mark as active before writing the marker, so a launch in between never "recovers" a live night.
             active = true
             markRecording(this, id)
+            if (!testRun && NightAudioPref.state(this).value == true) {
+                if (RecordingEnv.freeBytes(filesDir) >= NightAudioWriter.MIN_FREE_BYTES) {
+                    audioWriter = NightAudioWriter(app.repository.clipDir(id), rate, RecordingEnv.encoder)
+                } else audioNote = AUDIO_LOW_STORAGE
+            }
             starting = false
             _state.value = RecState(
                 recording = true, startMs = startMs, delayMs = delayMs, testRun = testRun, wakeAtMs = wakeAtMs, activeSessionId = id,
@@ -235,6 +242,12 @@ class RecordingService : Service() {
                     stopReason = RecordingPolicy.safetyStop(offsetNow(), pct, charging)
                         ?: RecordingPolicy.plannedStop(offsetNow(), RecordingEnv.wallMs(), testRunMs, wakeAtMs)
                     if (stopReason != null) stopRequested = true
+                    audioWriter?.let { w ->
+                        if (w.failed) { audioNote = AUDIO_FAILED; audioWriter = null }
+                        else if (RecordingEnv.freeBytes(filesDir) < NightAudioWriter.MIN_FREE_BYTES) {
+                            w.close(); audioNote = AUDIO_LOW_STORAGE; audioWriter = null
+                        }
+                    }
                 }
                 if (stopRequested) break
 
@@ -248,6 +261,7 @@ class RecordingService : Service() {
                     }
                 }
                 if (audio == null) {
+                    audioWriter?.gap()
                     gaps.begin(offsetNow())
                     _state.value = _state.value.copy(micPaused = true)
                     notifyText("Microphone in use elsewhere. Will carry on when it is free.")
@@ -259,6 +273,7 @@ class RecordingService : Service() {
 
                 if (silenced || RecordingPolicy.isDigitalSilence(buf, n)) {
                     // Feeding muted input would drag the noise floor down; count it as a gap instead.
+                    audioWriter?.gap()
                     gaps.begin(offsetNow())
                 } else {
                     failures = 0
@@ -267,6 +282,7 @@ class RecordingService : Service() {
                         val behind = offsetNow() - n * 1000L / rate - accountedMs
                         if (behind > 0) { recorder.skip(behind); accountedMs += behind }
                     }
+                    audioWriter?.write(buf, n, accountedMs)
                     recorder.feed(buf, n)
                     accountedMs += n * 1000L / rate
                 }
@@ -297,6 +313,8 @@ class RecordingService : Service() {
                     lastSave = now
                 }
             }
+            audioWriter?.close()
+            if (audioWriter?.failed == true) audioNote = AUDIO_FAILED
             // Time at the end with no audio still belongs to the night.
             val tail = offsetNow() - accountedMs
             if (gaps.inGap && tail > 0) recorder.skip(tail)
@@ -312,6 +330,7 @@ class RecordingService : Service() {
             }
         } catch (e: Exception) {
             problem = e.message ?: "Recording failed."
+            runCatching { audioWriter?.close() }
             // Keep whatever was heard before the failure.
             if (recorder != null) runCatching {
                 recorder.finish()
@@ -325,7 +344,8 @@ class RecordingService : Service() {
             runCatching { audio?.close() }
             clearRecordingMark(this)
             if (stopReason == RecordingPolicy.StopReason.WAKE_TIME) runCatching { WakeAlarm.ring(this) }
-            val notice = stopReason?.takeIf { it != RecordingPolicy.StopReason.TEST_DONE }?.message
+            val notice = listOfNotNull(stopReason?.takeIf { it != RecordingPolicy.StopReason.TEST_DONE }?.message, audioNote)
+                .joinToString(" ").ifEmpty { null }
             _state.value = RecState(finishedId = finishedId, error = problem, notice = notice, noticeSessionId = notice?.let { finishedId })
             active = false
             starting = false
@@ -373,6 +393,8 @@ class RecordingService : Service() {
         internal const val EXTRA_TEST_RUN_MS = "testRunMs"
         /** Note put on a test-run night so it is easy to tell apart. */
         const val TEST_RUN_NOTE = "Test run"
+        private const val AUDIO_LOW_STORAGE = "Full-night audio was turned off for this night because the phone is low on storage."
+        private const val AUDIO_FAILED = "Full-night audio could not be recorded on this phone; snore clips were still kept."
         private const val CHANNEL_ID = "recording"
         private const val NOTIFICATION_ID = 1
         private const val MARK_PREFS = "recording"

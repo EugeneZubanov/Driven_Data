@@ -28,8 +28,12 @@ object RecordingEnv {
     @Volatile var wallMs: () -> Long = System::currentTimeMillis
     @Volatile var sleep: (Long) -> Unit = { Thread.sleep(it) }
     @Volatile var battery: (Context) -> Pair<Int?, Boolean> = RecordingService::readBattery
+    @Volatile var encoder: EncoderFactory = EncoderFactory { f, rate -> AacSegmentEncoder(f, rate) }
+    @Volatile var freeBytes: (java.io.File) -> Long = { it.usableSpace }
 
     fun reset() {
+        encoder = EncoderFactory { f, rate -> AacSegmentEncoder(f, rate) }
+        freeBytes = { it.usableSpace }
         openMic = ::openAudioRecord
         elapsedMs = SystemClock::elapsedRealtime
         wallMs = System::currentTimeMillis
