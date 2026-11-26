@@ -337,7 +337,7 @@ class AacSegmentEncoder(file: File, private val choice: AacSupport.Choice) : Seg
             // MediaMuxer.stop() writes the moov box that makes the file playable; it throws if no
             // sample was written, so only stop when something was. Errors above still propagate.
             ok = muxing && samplesWritten > 0 && runCatching { muxer.stop() }.isSuccess
-            muxer.release()
+            runCatching { muxer.release() } // release() itself stops a started muxer and throws if it had no samples
         }
         return ok
     }

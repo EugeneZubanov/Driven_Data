@@ -128,13 +128,13 @@ fun rememberDataActions(app: QuietNightApp): DataActions {
     }
 
     return DataActions(
-        onBackup = { backupLauncher.launch(Backup.fileName(System.currentTimeMillis())) },
+        onBackup = { runCatching { backupLauncher.launch(Backup.fileName(System.currentTimeMillis())) } },
         // Some file managers label zips oddly, so accept any type and let the restore validate it.
-        onRestore = { restoreLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
-        onExportCsv = { csvLauncher.launch(Csv.fileName(System.currentTimeMillis())) },
+        onRestore = { runCatching { restoreLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) } },
+        onExportCsv = { runCatching { csvLauncher.launch(Csv.fileName(System.currentTimeMillis())) } },
         message = state.message,
         busy = state.busy,
-        onSaveReport = { reportLauncher.launch(ReportData.fileName(System.currentTimeMillis())) },
+        onSaveReport = { runCatching { reportLauncher.launch(ReportData.fileName(System.currentTimeMillis())) } },
         // Shares the document the user just saved: the picker granted us access to it, and we pass that on,
         // so no FileProvider is needed.
         onShareReport = state.reportUri?.let { uri ->

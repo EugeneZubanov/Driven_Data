@@ -44,7 +44,7 @@ class LastNightWidget : AppWidgetProvider() {
             } catch (_: RuntimeException) {
                 return // widget service unavailable (e.g. some test or restricted environments)
             }
-            if (ids.isNotEmpty()) render(context, manager, ids, sessions)
+            if (ids.isNotEmpty()) runCatching { render(context, manager, ids, sessions) } // a system error must not end the app
         }
 
         private fun render(context: Context, manager: AppWidgetManager, ids: IntArray, sessions: List<Session>) {

@@ -78,8 +78,7 @@ class WeightStore(private val file: File) {
         val next = transform(_log.value)
         _log.value = next
         val tmp = File(file.parentFile, file.name + ".tmp")
-        tmp.writeText(Weight.toJson(next).toString())
-        tmp.renameTo(file)
+        runCatching { tmp.writeText(Weight.toJson(next).toString()); tmp.renameTo(file) } // e.g. disk full: keep the in-memory value
     }
 
     /** Merges a restored log into this one; returns the number of days added. */

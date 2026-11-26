@@ -316,8 +316,7 @@ class RecordingService : Service() {
                 )
                 // Save progress regularly so a night is not lost if the phone kills the app or dies.
                 if (now - lastSave > RecordingPolicy.SAVE_EVERY_MS) {
-                    app.repository.save(snapshot())
-                    saved = true
+                    if (runCatching { app.repository.save(snapshot()) }.isSuccess) saved = true // e.g. disk full: keep recording
                     lastSave = now
                 }
             }

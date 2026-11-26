@@ -171,6 +171,14 @@ class ResultsLogicTest {
         assertEquals(Session.fromJson(JSONObject(o.toJson().toString())).otherSec, 60)
     }
 
+    @Test fun damagedNightWithShortArraysStillDraws() {
+        val s = Session("d", t0, t0 + 300_000, 60, byteArrayOf(2, 2, 0, 1, 9), byteArrayOf(20), emptyList(), emptyList())
+        val c = NightStats.columns(s, s.startMs, s.endMs, 5)
+        assertEquals(listOf(2, 2, 0, 1, 3), c.levels.toList()) // out-of-range level clamped, missing amps read as 0
+        assertTrue(s.score >= 0)
+        NightStats.tip(s); NightStats.longestQuiet(s); NightStats.loudestHour(s, utc); NightStats.shareText(s, listOf(s), utc, Locale.US)
+    }
+
     @Test fun tipPicksOneFact() {
         val q = ".".repeat(20)
         assertEquals("Most snoring came in the last third of the night.", NightStats.tip(night(q + q + "2".repeat(10) + ".".repeat(10))))
