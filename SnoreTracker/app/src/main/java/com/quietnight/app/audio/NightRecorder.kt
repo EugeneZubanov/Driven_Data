@@ -42,9 +42,13 @@ class NightRecorder(
     val currentDbAboveFloor: Float get() = if (listening) detector.currentDbAboveFloor else 0f
     val listening: Boolean get() = totalSamples >= delaySamples
 
-    // The last three buckets of audio; a bucket's level is settled once two more have passed.
-    private val ring = if (clipDir != null) Array(3) { ShortArray(bucketSamples) } else emptyArray()
+    // The last RING_BUCKETS buckets of audio. The detector confirms the first snores of a run up
+    // to ~25 s late (it waits for three breaths), so a bucket's level is only treated as settled,
+    // and its clip decided, once RING_BUCKETS - 1 more buckets have passed (40 s at 10 s buckets).
+    private val ring = if (clipDir != null) Array(RING_BUCKETS) { ShortArray(bucketSamples) } else emptyArray()
     private val clips = ArrayList<Clip>()
+    /** First bucket whose clip has not been decided yet. */
+    private var nextClipBucket = 0
 
     fun feed(samples: ShortArray, count: Int) {
         var offset = 0
@@ -52,11 +56,11 @@ class NightRecorder(
             val bucket = (totalSamples / bucketSamples).toInt()
             val posInBucket = (totalSamples % bucketSamples).toInt()
             val n = minOf(count - offset, bucketSamples - posInBucket)
-            if (ring.isNotEmpty()) System.arraycopy(samples, offset, ring[bucket % 3], posInBucket, n)
+            if (ring.isNotEmpty()) System.arraycopy(samples, offset, ring[bucket % RING_BUCKETS], posInBucket, n)
             if (totalSamples >= delaySamples) detector.feed(samples, offset, n)
             totalSamples += n
             offset += n
-            if (posInBucket + n == bucketSamples && bucket >= 2) considerClip(bucket - 2)
+            if (posInBucket + n == bucketSamples) decideClipsUpTo(bucket - (RING_BUCKETS - 1))
         }
     }
 
@@ -68,10 +72,26 @@ class NightRecorder(
         val n = ms * sampleRate / 1000
         if (n <= 0) return
         val before = totalSamples
+        // Breaths on either side of the gap must not be paired into a rhythm, and every event
+        // the detector reports from now on then starts after the gap, so [skippedMs] at report
+        // time is also the offset in force when the snore happened.
+        detector.interrupt()
+        val beforeBucket = (before / bucketSamples).toInt()
+        val beforePos = (before % bucketSamples).toInt()
+        val newBucket = ((before + n) / bucketSamples).toInt()
+        // Audio before the gap is final now: decide its clips while it is still in the ring.
+        if (newBucket > beforeBucket) decideClipsUpTo(if (beforePos > 0) beforeBucket else beforeBucket - 1)
         totalSamples += n
         if (totalSamples > delaySamples) skippedMs += (totalSamples - maxOf(before, delaySamples)) * 1000 / sampleRate
-        // The audio ring no longer lines up with the buckets around the gap; start clean.
-        for (r in ring) r.fill(0)
+        if (newBucket > beforeBucket) nextClipBucket = maxOf(nextClipBucket, newBucket)
+        // Silence the part of the ring the gap covers, so no stale audio ends up in a clip.
+        if (newBucket - beforeBucket >= RING_BUCKETS) {
+            for (r in ring) r.fill(0)
+        } else {
+            for (b in beforeBucket..newBucket) {
+                if (ring.isNotEmpty()) ring[b % RING_BUCKETS].fill(0, if (b == beforeBucket) beforePos else 0, bucketSamples)
+            }
+        }
     }
 
     private fun onSnore(e: SnoreEvent) {
@@ -95,6 +115,24 @@ class NightRecorder(
         }
     }
 
+    /**
+     * Decides clips for the buckets still in the ring, e.g. when the night ends; without it the
+     * last ~40 s cannot yield a clip. Call before the final [snapshot].
+     */
+    fun finish() {
+        decideClipsUpTo(((totalSamples - 1) / bucketSamples).toInt())
+    }
+
+    private fun decideClipsUpTo(last: Int) {
+        if (ring.isEmpty()) return
+        val lastWritten = ((totalSamples - 1) / bucketSamples).toInt()
+        while (nextClipBucket <= last) {
+            // Only buckets whose audio is still in the ring.
+            if (nextClipBucket > lastWritten - RING_BUCKETS) considerClip(nextClipBucket)
+            nextClipBucket++
+        }
+    }
+
     private fun considerClip(bucket: Int) {
         val dir = clipDir ?: return
         if (bucket >= levels.size || levels[bucket].toInt() == 0) return
@@ -107,7 +145,7 @@ class NightRecorder(
         }
         runCatching {
             dir.mkdirs()
-            writeWav(File(dir, candidate.file), ring[bucket % 3], sampleRate)
+            writeWav(File(dir, candidate.file), ring[bucket % RING_BUCKETS], sampleRate)
             clips.add(candidate)
         }
     }
@@ -131,6 +169,8 @@ class NightRecorder(
     }
 
     companion object {
+        private const val RING_BUCKETS = 5
+
         fun writeWav(file: File, pcm: ShortArray, sampleRate: Int) {
             val dataLen = pcm.size * 2
             val buf = ByteBuffer.allocate(44 + dataLen).order(ByteOrder.LITTLE_ENDIAN)
