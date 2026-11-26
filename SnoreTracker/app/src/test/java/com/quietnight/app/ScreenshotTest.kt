@@ -367,6 +367,21 @@ class ScreenshotTest {
         shot("detail-other-sounds") { SessionDetailScreen(s, {}, {}, null, {}, { File(it) }, history = sessions, onSave = {}) }
     }
 
+    @Test fun detailNightAudio() {
+        val s = withClips()
+        val segs = (0 until 40).filter { it != 9 && it != 10 }.map { com.quietnight.app.audio.AudioSegment("audio-%03d.m4a".format(it + 1), it * 600_000L, 600_000L) }
+            .filter { it.startMs < s.endMs - s.startMs }
+        val audio = com.quietnight.app.ui.NightAudioPlayer(segs, File("x")).apply { showForPreview(3 * 3_600_000L + 12 * 60_000L, true) }
+        shot("detail-night-audio") {
+            SessionDetailScreen(
+                s, {}, {}, null, {}, { File(it) }, history = sessions, onSave = {},
+                audioSegments = segs, audioDir = File("x"), audioBytes = 61_400_000L, onDeleteAudio = {}, nightAudio = audio,
+            )
+        }
+        compose.onNodeWithText("Listen to the night").performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/detail-night-audio-card.png")
+    }
+
     @Test fun resultsLargeText() = bigShot("results-large-text") { ResultsListScreen(sessions, nowMs = now) {} }
 
     @Test fun detailClips() {
