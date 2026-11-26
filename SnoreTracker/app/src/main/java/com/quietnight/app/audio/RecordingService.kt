@@ -175,7 +175,7 @@ class RecordingService : Service() {
         var finishedId: String? = null
         var problem: String? = null
         var stopReason: RecordingPolicy.StopReason? = null
-        var audioWriter: NightAudioWriter? = null
+        var audioWriter: AudioSink? = null
         var audioNote: String? = null
         var notified = ""
         fun offsetNow() = RecordingEnv.elapsedMs() - startElapsed
@@ -218,7 +218,7 @@ class RecordingService : Service() {
             if (!testRun && NightAudioPref.state(this).value == true) {
                 if (!RecordingEnv.audioSupported()) audioNote = AUDIO_FAILED
                 else if (RecordingEnv.freeBytes(this) >= NightAudioWriter.MIN_FREE_BYTES) {
-                    audioWriter = NightAudioWriter(app.repository.clipDir(id), rate, RecordingEnv.encoder)
+                    audioWriter = RecordingEnv.audioSink(NightAudioWriter(app.repository.clipDir(id), rate, RecordingEnv.encoder))
                 } else audioNote = AUDIO_LOW_STORAGE
             }
             starting = false
@@ -233,7 +233,10 @@ class RecordingService : Service() {
             var lastSave = RecordingEnv.elapsedMs()
             var lastCheck = Long.MIN_VALUE / 2
             var silenced = false
-            var accountedMs = 0L // audio fed plus time skipped, to keep the timeline on the wall clock
+            // Audio fed plus time skipped, kept in samples so odd read sizes never round away time.
+            var accountedSamples = 0L
+            fun accounted() = accountedSamples * 1000 / rate
+            var zeroRunMs = 0L
             var failures = 0
             var saved = false
             while (!stopRequested) {
@@ -255,11 +258,11 @@ class RecordingService : Service() {
                     if (stopReason != null) stopRequested = true
                     // Audio lost without a gap (a stall or overrun) must not shrink the night.
                     if (!gaps.inGap) {
-                        val catchUp = RecordingPolicy.catchUpMs(offsetNow(), accountedMs)
-                        if (catchUp > 0) { recorder?.skip(catchUp); accountedMs += catchUp; audioWriter?.gap() }
+                        val catchUp = RecordingPolicy.catchUpMs(offsetNow(), accounted())
+                        if (catchUp > 0) { recorder?.skip(catchUp); accountedSamples += catchUp * rate / 1000; audioWriter?.gap() }
                     }
                     audioWriter?.let { w ->
-                        if (w.failed) { audioNote = AUDIO_FAILED; audioWriter = null }
+                        if (w.failed) { w.close(); audioNote = AUDIO_FAILED; audioWriter = null }
                         else if (RecordingEnv.freeBytes(this) < NightAudioWriter.MIN_FREE_BYTES) {
                             w.close(); audioNote = AUDIO_LOW_STORAGE; audioWriter = null
                         }
@@ -287,7 +290,9 @@ class RecordingService : Service() {
                 }
                 if (n == 0) { RecordingEnv.sleep(20); continue }
 
-                if (silenced || RecordingPolicy.isDigitalSilence(buf, n)) {
+                val zeros = RecordingPolicy.isDigitalSilence(buf, n)
+                zeroRunMs = if (zeros) zeroRunMs + n * 1000L / rate else 0L
+                if (silenced || (zeros && RecordingPolicy.digitalSilenceIsGap(zeroRunMs))) {
                     // Feeding muted input would drag the noise floor down; count it as a gap instead.
                     audioWriter?.gap()
                     gaps.begin(offsetNow())
@@ -295,12 +300,12 @@ class RecordingService : Service() {
                     failures = 0
                     if (gaps.inGap) {
                         gaps.end(offsetNow())
-                        val behind = offsetNow() - n * 1000L / rate - accountedMs
-                        if (behind > 0) { recorder.skip(behind); accountedMs += behind }
+                        val behind = offsetNow() - n * 1000L / rate - accounted()
+                        if (behind > 0) { recorder.skip(behind); accountedSamples += behind * rate / 1000 }
                     }
-                    audioWriter?.write(buf, n, accountedMs)
+                    audioWriter?.write(buf, n, accounted())
                     recorder.feed(buf, n)
-                    accountedMs += n * 1000L / rate
+                    accountedSamples += n
                 }
                 val paused = gaps.inGap
                 // Nobody sees the live meter with the screen off or dimmed; update far less often then.
@@ -331,7 +336,7 @@ class RecordingService : Service() {
             audioWriter?.close()
             if (audioWriter?.failed == true) audioNote = AUDIO_FAILED
             // Time at the end with no audio still belongs to the night.
-            val tail = offsetNow() - accountedMs
+            val tail = offsetNow() - accounted()
             if (gaps.inGap && tail > 0) recorder.skip(tail)
             recorder.finish() // decide clips for the last buckets
             val session = snapshot()
@@ -357,6 +362,7 @@ class RecordingService : Service() {
             // From here on a new Start is queued until this night has finished saving.
             stopRequested = true
             runCatching { audio?.close() }
+            runCatching { audioWriter?.close() } // no encoder thread outlives the night (close is idempotent)
             clearRecordingMark(this)
             if (stopReason == RecordingPolicy.StopReason.WAKE_TIME) runCatching { WakeAlarm.ring(this) }
             val notice = listOfNotNull(stopReason?.takeIf { it != RecordingPolicy.StopReason.TEST_DONE }?.message, audioNote)

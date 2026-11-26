@@ -197,6 +197,12 @@ class RecordingPolicyTest {
         assertEquals(0L, RecordingPolicy.wakeAtAfterChange(false, 6, 15, ms("2026-11-27T03:00"), zone))
     }
 
+    @Test fun digitalSilenceIsAGapOnlyAfterSeconds() {
+        assertFalse(RecordingPolicy.digitalSilenceIsGap(100))
+        assertFalse(RecordingPolicy.digitalSilenceIsGap(3_900))
+        assertTrue(RecordingPolicy.digitalSilenceIsGap(RecordingPolicy.DIGITAL_SILENCE_GAP_MS))
+    }
+
     @Test fun serviceLifecycle() {
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = false))
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = true))

@@ -139,6 +139,15 @@ object RecordingPolicy {
         else -> 30_000L
     }
 
+    /**
+     * Exact zeros count as "no audio" only after this long. Phones with strong noise suppression
+     * output zeros between breaths; those must keep flowing to the detector and the audio file.
+     */
+    const val DIGITAL_SILENCE_GAP_MS = 4_000L
+
+    /** Whether a run of [zeroRunMs] of exact digital silence should be treated as a gap. */
+    fun digitalSilenceIsGap(zeroRunMs: Long): Boolean = zeroRunMs >= DIGITAL_SILENCE_GAP_MS
+
     /** True when a buffer is exact digital silence, which a real microphone never produces: the input was muted by the system. */
     fun isDigitalSilence(buf: ShortArray, n: Int): Boolean {
         if (n <= 0) return false
