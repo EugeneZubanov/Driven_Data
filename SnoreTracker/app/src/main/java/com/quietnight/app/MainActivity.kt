@@ -74,6 +74,8 @@ private fun AppRoot(app: QuietNightApp) {
     var detailId by rememberSaveable { mutableStateOf<String?>(null) }
     var deletedNotice by remember { mutableStateOf<com.quietnight.app.data.Session?>(null) }
     val loaded by app.repository.loaded.collectAsStateWithLifecycle()
+    val is24 = com.quietnight.app.ui.rememberIs24Hour()
+    androidx.compose.runtime.SideEffect { com.quietnight.app.ui.ClockFormat.is24 = is24 } // clock() follows the device setting
     var freshId by rememberSaveable { mutableStateOf<String?>(null) } // just recorded: show the morning summary
     val clipTotal by androidx.compose.runtime.produceState<Long?>(null, sessions) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.repository.clipBytes() }
@@ -161,6 +163,7 @@ private fun AppRoot(app: QuietNightApp) {
                         onDismissSummary = { freshId = null },
                         clipBytes = remember(detail) { app.repository.clipBytes(detail.id) },
                         onDeleteClips = { app.repository.deleteClips(detail.id) },
+                        recordingInProgress = rec.recording && detail.id == "s${rec.startMs}",
                     )
                 }
                 tab == 0 -> RecordTab(

@@ -156,7 +156,7 @@ class GapTracker(private val minGapMs: Long = RecordingPolicy.MIN_GAP_MS) {
 /** A copy of [s] with the recording-health fields set; everything else is unchanged. */
 fun Session.withRecordingInfo(interruptedAtMs: Long = this.interruptedAtMs, gaps: List<Gap> = this.gaps) = Session(
     id = id, startMs = startMs, endMs = endMs, bucketSec = bucketSec, levels = levels, amps = amps,
-    tags = tags, clips = clips, demo = demo, interruptedAtMs = interruptedAtMs, gaps = gaps, note = note,
+    tags = tags, clips = clips, demo = demo, interruptedAtMs = interruptedAtMs, gaps = gaps, note = note, notSnoring = notSnoring,
 )
 
 /**

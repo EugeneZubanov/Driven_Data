@@ -56,14 +56,33 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.quietnight.app.data.Clip
+import com.quietnight.app.data.Span
 import com.quietnight.app.data.NightStats
 import com.quietnight.app.data.formatDuration
 import kotlin.math.abs
 import java.text.SimpleDateFormat
+import java.util.TimeZone
 import java.util.Date
 import java.util.Locale
 
-fun clock(ms: Long): String = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
+/** Device 12/24-hour setting for [clock]; set once from the app root (see MainActivity). */
+object ClockFormat {
+    var is24 by mutableStateOf(true)
+}
+
+/** "23:05" or "11:05 PM". */
+fun formatClock(ms: Long, is24: Boolean, locale: Locale = Locale.getDefault(), tz: TimeZone = TimeZone.getDefault()): String =
+    SimpleDateFormat(if (is24) "HH:mm" else "h:mm a", locale).apply { timeZone = tz }.format(Date(ms))
+
+/** Short label for a whole hour: "23:00" or "11 PM". */
+fun formatHour(ms: Long, is24: Boolean, locale: Locale = Locale.getDefault(), tz: TimeZone = TimeZone.getDefault()): String =
+    SimpleDateFormat(if (is24) "HH:mm" else "h a", locale).apply { timeZone = tz }.format(Date(ms))
+
+/** Clock time in the device's 12/24-hour format. */
+fun clock(ms: Long): String = formatClock(ms, ClockFormat.is24)
+
+/** Whole-hour label in the device's 12/24-hour format. */
+fun hourLabel(ms: Long): String = formatHour(ms, ClockFormat.is24)
 
 @Composable
 fun Card(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -142,6 +161,9 @@ fun LevelLegend(modifier: Modifier = Modifier, showGaps: Boolean = false) {
     }
 }
 
+/** Bars the user marked as not snoring: neutral, so they read as neither snoring nor quiet. */
+val NotSnoringColor get() = Palette.Muted.copy(alpha = 0.4f)
+
 /** Neutral hatched area for time with no audio, so it does not read as quiet sleep. */
 fun DrawScope.drawGap(left: Float, top: Float, right: Float, bottom: Float, spacing: Float) {
     if (right <= left) return
@@ -211,6 +233,10 @@ fun TimelineChart(
     playingClip: String? = null,
     playProgress: () -> Float = { 0f },
     onClipTap: ((Clip) -> Unit)? = null,
+    /** Highlighted stretch, e.g. one picked for marking as not snoring. */
+    selection: Span? = null,
+    /** Touch and hold: the bucket index under the finger. Null turns it off. */
+    onLongPressBucket: ((Int) -> Unit)? = null,
 ) {
     val hours = remember(session.id, session.startMs, session.endMs) { NightStats.hourStarts(session) }
     var zoom by rememberSaveable(session.id) { mutableStateOf<Long?>(null) }
@@ -223,6 +249,7 @@ fun TimelineChart(
         session.clips.filter { session.startMs + it.offsetSec * 1000L in winStart until winEnd }
     }
     val currentOnClipTap by rememberUpdatedState(onClipTap)
+    val currentOnLongPress by rememberUpdatedState(onLongPressBucket)
     // Keep the playing clip on screen: if it is outside the zoomed hour, move to its hour.
     LaunchedEffect(playingClip) {
         val clip = session.clips.firstOrNull { it.file == playingClip } ?: return@LaunchedEffect
@@ -250,6 +277,12 @@ fun TimelineChart(
                 .pointerInput(session.id, winStart, clips) {
                     detectTapGestures(
                         onPress = { touchX = it.x; tryAwaitRelease(); touchX = null },
+                        onLongPress = { pos ->
+                            val cb = currentOnLongPress ?: return@detectTapGestures
+                            val t = winStart + ((winEnd - winStart) * (pos.x / size.width)).toLong()
+                            val b = ((t - session.startMs) / (session.bucketSec * 1000L)).toInt()
+                            if (b in session.levels.indices) cb(b)
+                        },
                         onTap = { pos ->
                             val tap = currentOnClipTap ?: return@detectTapGestures
                             if (pos.y > 40.dp.toPx()) return@detectTapGestures
@@ -295,7 +328,7 @@ fun TimelineChart(
                     var lastRight = -Float.MAX_VALUE
                     val labels = ticks.mapNotNull { t ->
                         val x = xOf(t)
-                        val layout = measurer.measure(clock(t), labelStyle)
+                        val layout = measurer.measure(if (zoom == null) hourLabel(t) else clock(t), labelStyle)
                         val left = (x - layout.size.width / 2f).coerceIn(0f, size.width - layout.size.width)
                         if (left < lastRight + minGap) null else {
                             lastRight = left + layout.size.width
@@ -317,10 +350,26 @@ fun TimelineChart(
                         }
                         for (c in 0 until count) {
                             val l = cols.levels[c]
-                            if (l == 0 || cols.gaps[c]) continue
-                            val h = base + (plotH - base) * ampFraction(cols.amps[c])
+                            if (cols.gaps[c]) continue
                             val bw = (w - 2f).coerceAtLeast(1f) // 2px gap between neighbouring bars
+                            if (l == 0) {
+                                // detected, then marked not snoring by the user: neutral
+                                if (cols.corrected[c] == 0) continue
+                                val h = base + (plotH - base) * ampFraction(cols.corrected[c])
+                                drawRoundRect(NotSnoringColor, Offset(c * w, plotBottom - h), Size(bw, h), CornerRadius(bw / 2.5f))
+                                continue
+                            }
+                            val h = base + (plotH - base) * ampFraction(cols.amps[c])
                             drawRoundRect(Palette.levels[l], Offset(c * w, plotBottom - h), Size(bw, h), CornerRadius(bw / 2.5f))
+                        }
+                        selection?.let { sel ->
+                            val l = xOf(session.startMs + sel.fromSec * 1000L).coerceIn(0f, size.width)
+                            val r = xOf(session.startMs + sel.toSec * 1000L).coerceIn(0f, size.width)
+                            if (r > l) {
+                                drawRect(Palette.Moon.copy(alpha = 0.16f), Offset(l, plotTop), Size(r - l, plotH))
+                                drawLine(Palette.Moon, Offset(l, plotTop), Offset(l, plotBottom), 1.5f)
+                                drawLine(Palette.Moon, Offset(r, plotTop), Offset(r, plotBottom), 1.5f)
+                            }
                         }
 
                         // stretches with no audio
@@ -340,7 +389,8 @@ fun TimelineChart(
                         for (clip in clips) {
                             val x = xOf(session.startMs + clip.offsetSec * 1000L + CLIP_MS / 2)
                             val isPlaying = clip.file == playingClip
-                            val color = Palette.levels[clip.level.coerceIn(1, 3)]
+                            val corrected = session.notSnoringMask.getOrElse(clip.offsetSec / session.bucketSec) { false }
+                            val color = if (corrected) NotSnoringColor else Palette.levels[clip.level.coerceIn(1, 3)]
                             if (isPlaying) drawCircle(Palette.Moon, tri * 1.25f, Offset(x, band / 2), style = Stroke(1.5.dp.toPx()))
                             val path = Path().apply {
                                 moveTo(x - tri / 1.4f, band / 2 - tri / 2)
@@ -365,7 +415,11 @@ fun TimelineChart(
                             val at = winStart + (span * (x / size.width)).toLong()
                             if (at < session.startMs || at > session.endMs) return@let
                             drawLine(Palette.Text.copy(alpha = 0.7f), Offset(x, plotTop), Offset(x, plotBottom), 1.5f)
-                            val what = if (cols.gaps[c]) "No sound" else Level.names[cols.levels[c]]
+                            val what = when {
+                                cols.gaps[c] -> "No sound"
+                                cols.levels[c] == 0 && cols.corrected[c] > 0 -> "Not snoring"
+                                else -> Level.names[cols.levels[c]]
+                            }
                             val layout = measurer.measure("${clock(at)} · $what", readoutStyle)
                             val pad = 6.dp.toPx()
                             val bw = layout.size.width + pad * 2
@@ -388,7 +442,7 @@ fun TimelineChart(
                 for (h in hours) {
                     val selected = zoom == h
                     Text(
-                        clock(h),
+                        hourLabel(h),
                         Modifier
                             .minimumInteractiveComponentSize()
                             .clip(RoundedCornerShape(50))

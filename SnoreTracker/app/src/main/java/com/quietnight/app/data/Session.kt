@@ -23,6 +23,9 @@ object Level {
 
 data class Clip(val offsetSec: Int, val file: String, val level: Int, val amp: Int)
 
+/** A stretch marked by the user as not snoring, in seconds from the start. */
+data class Span(val fromSec: Int, val toSec: Int)
+
 /** A stretch of the night with no audio (microphone in use elsewhere), in seconds from the start. */
 data class Gap(val fromSec: Int, val toSec: Int)
 
@@ -46,6 +49,11 @@ class Session(
     val gaps: List<Gap> = emptyList(),
     /** Short free-text note added after the night; empty when none. */
     val note: String = "",
+    /**
+     * Stretches the user marked as not snoring, in the order they were marked. Detection in
+     * [levels] is kept as it was, so removing a span undoes the correction exactly.
+     */
+    val notSnoring: List<Span> = emptyList(),
 ) {
     val durationSec: Int get() = ((endMs - startMs) / 1000).toInt()
 
@@ -63,6 +71,31 @@ class Session(
         mask
     }
 
+    /** True for buckets whose middle falls in a [notSnoring] span. */
+    val notSnoringMask: BooleanArray by lazy { spanMask(notSnoring.map { it.fromSec to it.toSec }) }
+
+    /** Level after corrections: quiet for gaps and for stretches marked not snoring. */
+    fun effectiveLevel(i: Int): Int =
+        if (gapMask[i] || notSnoringMask[i]) Level.QUIET else levels[i].toInt().coerceIn(0, 3)
+
+    /** Seconds that were detected as snoring but marked not snoring. */
+    val correctedSec: Int by lazy {
+        levels.indices.count { notSnoringMask[it] && !gapMask[it] && levels[it] > 0 } * bucketSec
+    }
+
+    private fun spanMask(spans: List<Pair<Int, Int>>): BooleanArray {
+        val mask = BooleanArray(levels.size)
+        for ((fromSec, toSec) in spans) {
+            val from = kotlin.math.ceil((fromSec - bucketSec / 2f) / bucketSec).toInt().coerceAtLeast(0)
+            for (b in from until levels.size) {
+                val mid = b * bucketSec + bucketSec / 2f
+                if (mid >= toSec) break
+                if (mid >= fromSec) mask[b] = true
+            }
+        }
+        return mask
+    }
+
     /** Seconds of the timeline with no audio. */
     val gapSec: Int by lazy { gapMask.count { it } * bucketSec }
 
@@ -72,7 +105,7 @@ class Session(
     /** Seconds spent at each level, indexed by [Level]. Gaps are not counted as quiet. */
     val secondsByLevel: IntArray by lazy {
         val out = IntArray(4)
-        for (i in levels.indices) if (!gapMask[i]) out[levels[i].toInt().coerceIn(0, 3)] += bucketSec
+        for (i in levels.indices) if (!gapMask[i]) out[effectiveLevel(i)] += bucketSec
         out
     }
 
@@ -111,19 +144,33 @@ class Session(
         if (interruptedAtMs > 0) put("interruptedAt", interruptedAtMs)
         if (gaps.isNotEmpty()) put("gaps", JSONArray().also { arr -> gaps.forEach { arr.put(JSONArray().put(it.fromSec).put(it.toSec)) } })
         if (note.isNotEmpty()) put("note", note)
+        if (notSnoring.isNotEmpty()) put("notSnoring", JSONArray().also { arr -> notSnoring.forEach { arr.put(JSONArray().put(it.fromSec).put(it.toSec)) } })
     }
 
     /** Same night with tags and note changed after the fact. */
     fun withEdits(tags: List<String>, note: String): Session =
-        Session(id, startMs, endMs, bucketSec, levels, amps, tags, clips, demo, interruptedAtMs, gaps, note)
+        Session(id, startMs, endMs, bucketSec, levels, amps, tags, clips, demo, interruptedAtMs, gaps, note, notSnoring)
+
+    /** Same night with a different set of not-snoring corrections. */
+    fun withNotSnoring(spans: List<Span>): Session = Session(
+        id, startMs, endMs, bucketSec, levels, amps, tags, clips, demo = demo,
+        interruptedAtMs = interruptedAtMs, gaps = gaps, note = note, notSnoring = spans,
+    )
+
+    /** False for test runs and nights with under an hour actually listened to. */
+    val countsForTrends: Boolean get() = note != TEST_RUN_NOTE && listenedSec >= 3600
 
     companion object {
         val WEIGHTS = floatArrayOf(0.4f, 1.0f, 2.0f)
+
+        /** Note the recorder gives a short test recording; same text as RecordingService.TEST_RUN_NOTE. */
+        const val TEST_RUN_NOTE = "Test run"
 
         fun fromJson(o: JSONObject): Session {
             val tags = o.optJSONArray("tags") ?: JSONArray()
             val clips = o.optJSONArray("clips") ?: JSONArray()
             val gaps = o.optJSONArray("gaps") ?: JSONArray()
+            val notSnoring = o.optJSONArray("notSnoring") ?: JSONArray()
             return Session(
                 id = o.getString("id"),
                 startMs = o.getLong("start"),
@@ -140,6 +187,7 @@ class Session(
                 interruptedAtMs = o.optLong("interruptedAt", 0L),
                 gaps = List(gaps.length()) { gaps.getJSONArray(it).let { g -> Gap(g.getInt(0), g.getInt(1)) } },
                 note = o.optString("note", ""),
+                notSnoring = List(notSnoring.length()) { notSnoring.getJSONArray(it).let { g -> Span(g.getInt(0), g.getInt(1)) } },
             )
         }
     }

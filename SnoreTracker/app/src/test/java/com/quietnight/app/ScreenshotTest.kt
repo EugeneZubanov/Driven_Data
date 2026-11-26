@@ -313,6 +313,34 @@ class ScreenshotTest {
 
     @Test fun resultsLoading() = shot("results-loading") { ResultsListScreen(emptyList(), loading = true) {} }
 
+    @Test fun detailCorrected() {
+        val base = withClips()
+        val c = base.clips[1]
+        val s = base.withNotSnoring(listOf(com.quietnight.app.data.Span(c.offsetSec, c.offsetSec + base.bucketSec), com.quietnight.app.data.Span(5400, 7800)))
+        val player = ClipPlayer().apply { showForPreview(base.clips[0].file, 0.6f) }
+        try {
+            com.quietnight.app.ui.ClockFormat.is24 = false
+            shot("detail-corrected-12h") {
+                SessionDetailScreen(s, {}, {}, null, {}, { File(it) }, history = sessions, onSave = {}, player = player)
+            }
+            compose.onAllNodesWithContentDescription("Play clip from", substring = true, useUnmergedTree = true).onLast().performScrollTo()
+            compose.onRoot().captureRoboImage("build/shots/detail-corrected-12h-clips.png")
+        } finally {
+            com.quietnight.app.ui.ClockFormat.is24 = true
+        }
+    }
+
+    @Test fun detailRecording() = shot("detail-recording") {
+        SessionDetailScreen(withClips(), {}, {}, null, {}, { File(it) }, history = sessions, onSave = {}, onDeleteClips = {}, recordingInProgress = true)
+    }
+
+    @Test fun resultsTestRun() {
+        val list = sessions.toMutableList()
+        list[0] = list[0].withEdits(emptyList(), Session.TEST_RUN_NOTE)
+        list[1] = list[1].withEdits(emptyList(), Session.TEST_RUN_NOTE)
+        shot("results-test-run") { ResultsListScreen(list, nowMs = now) {} }
+    }
+
     @Test fun resultsLargeText() = bigShot("results-large-text") { ResultsListScreen(sessions, nowMs = now) {} }
 
     @Test fun detailClips() {
