@@ -6,6 +6,11 @@ import org.json.JSONObject
 import java.io.File
 
 /** Stores each night as one JSON file plus a folder of WAV clips. Newest session first. */
+private fun Session.withoutClips() = Session(
+    id, startMs, endMs, bucketSec, levels, amps, tags, emptyList(), demo = demo,
+    interruptedAtMs = interruptedAtMs, gaps = gaps, note = note,
+)
+
 class SessionRepository(private val root: File) {
     private val sessionsDir = File(root, "sessions").apply { mkdirs() }
     private val clipsDir = File(root, "clips").apply { mkdirs() }
@@ -14,12 +19,36 @@ class SessionRepository(private val root: File) {
     private val _sessions = MutableStateFlow<List<Session>>(emptyList())
     val sessions: StateFlow<List<Session>> = _sessions
 
+    private val _loaded = MutableStateFlow(false)
+
+    /** False until the saved nights have been read; screens show a loading state meanwhile. */
+    val loaded: StateFlow<Boolean> = _loaded
+
+    /**
+     * Reads every saved night. Files that cannot be parsed (corrupt, or cut off mid-write) are
+     * skipped without affecting the others; leftover temp files from an interrupted save are removed.
+     * Holds the lock throughout, so a [save] from the recording thread is never lost: it either
+     * lands on disk before the files are listed or is applied after.
+     */
     @Synchronized
     fun load() {
         purgeTrash()
+        sessionsDir.listFiles { f -> f.name.endsWith(".tmp") }?.forEach { it.delete() }
         _sessions.value = (sessionsDir.listFiles { f -> f.name.endsWith(".json") } ?: emptyArray())
             .mapNotNull { f -> runCatching { Session.fromJson(JSONObject(f.readText())) }.getOrNull() }
             .sortedByDescending { it.startMs }
+        _loaded.value = true
+    }
+
+    /** Loads now on the calling thread unless already loaded. For code that needs the full list. */
+    fun ensureLoaded() {
+        if (_loaded.value) return
+        synchronized(this) { if (!_loaded.value) load() }
+    }
+
+    /** Starts loading on a background thread so app start does not wait for it. */
+    fun loadInBackground() {
+        Thread({ ensureLoaded() }, "load-nights").start()
     }
 
     @Synchronized
@@ -71,7 +100,34 @@ class SessionRepository(private val root: File) {
     }
 
     fun deleteWhere(predicate: (Session) -> Boolean) {
+        ensureLoaded()
         _sessions.value.filter(predicate).forEach { delete(it.id) }
+    }
+
+    /** Bytes used by one night's clips. */
+    fun clipBytes(sessionId: String): Long =
+        clipDir(sessionId).listFiles()?.sumOf { it.length() } ?: 0L
+
+    /** Bytes used by all saved clips (not counting a night waiting in the trash). */
+    fun clipBytes(): Long = clipsDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+
+    /** Deletes a night's audio clips but keeps the night. Returns the bytes freed. */
+    @Synchronized
+    fun deleteClips(sessionId: String): Long {
+        val freed = clipBytes(sessionId)
+        clipDir(sessionId).deleteRecursively()
+        _sessions.value.firstOrNull { it.id == sessionId }?.let { s ->
+            if (s.clips.isNotEmpty()) save(s.withoutClips())
+        }
+        return freed
+    }
+
+    /** Deletes the clips of nights that ended more than [days] days before [nowMs]. Returns the bytes freed. */
+    fun deleteClipsOlderThan(days: Int, nowMs: Long = System.currentTimeMillis()): Long {
+        ensureLoaded()
+        val cutoff = nowMs - days * 86_400_000L
+        return _sessions.value.filter { it.endMs < cutoff && (it.clips.isNotEmpty() || clipDir(it.id).exists()) }
+            .sumOf { deleteClips(it.id) }
     }
 
     fun clipDir(sessionId: String) = File(clipsDir, sessionId)

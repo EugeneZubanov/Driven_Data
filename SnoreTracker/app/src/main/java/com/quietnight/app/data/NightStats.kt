@@ -187,6 +187,28 @@ object NightStats {
         }
     }
 
+    /** Short morning-after summary, e.g. "You snored for 1h 34m, 18% of the night. Quieter than your average." */
+    fun morningSummary(session: Session, all: List<Session>): String {
+        val pct = (session.snoringFraction * 100).roundToInt()
+        val first = if (session.snoringSec < 60) "Hardly any snoring was picked up."
+        else "You snored for ${formatDuration(session.snoringSec)}, $pct% of the night."
+        val c = compareWithRecent(session, all) ?: return first
+        val d = c.diff(session.score)
+        val second = when {
+            d <= -3 -> "Quieter than your average."
+            d >= 3 -> "Noisier than your average."
+            else -> "About your average."
+        }
+        return "$first $second"
+    }
+
+    /** "830 KB", "12.4 MB". */
+    fun formatBytes(bytes: Long): String = when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1024L * 1024 -> "${(bytes + 512) / 1024} KB"
+        else -> String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
+    }
+
     /** Plain-text summary of a night for the share sheet. */
     fun shareText(session: Session, all: List<Session>, tz: TimeZone = TimeZone.getDefault(), locale: Locale = Locale.getDefault()): String {
         fun f(p: String, ms: Long) = SimpleDateFormat(p, locale).apply { timeZone = tz }.format(Date(ms))
