@@ -82,6 +82,7 @@ class ScreenshotTest {
         SettingsScreen(
             Prefs(reminderOn = true), false, true, {}, {}, {}, {}, {}, {}, {}, "Added 12 nights. 3 already here.",
             onShowIntro = {}, onReminder = { _, _ -> }, weight = WeightLog(), onWeight = {},
+            onSaveReport = {}, onShareReport = {},
         )
     })
 

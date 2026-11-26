@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Quiet Night</string>
+    <string name="widget_description">Last night\'s snore score and time spent snoring.</string>
 </resources>

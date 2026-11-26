@@ -5,5 +5,4 @@
         <item name="android:navigationBarColor">@color/night</item>
     </style>
     <color name="night">#0E1120</color>
-    <color name="moon">#F3E9C6</color>
 </resources>

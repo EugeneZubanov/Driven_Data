@@ -55,6 +55,8 @@ fun SettingsScreen(
     onReminder: ((on: Boolean, minuteOfDay: Int) -> Unit)? = null,
     weight: WeightLog? = null,
     onWeight: (((WeightLog) -> WeightLog) -> Unit)? = null,
+    onSaveReport: (() -> Unit)? = null,
+    onShareReport: (() -> Unit)? = null,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
@@ -108,7 +110,7 @@ fun SettingsScreen(
 
         if (onBackup != null || onRestore != null || onExportCsv != null) {
             Spacer(Modifier.height(12.dp))
-            DataCard(hasSessions, onBackup, onRestore, onExportCsv, dataMessage, dataBusy)
+            DataCard(hasSessions, onBackup, onRestore, onExportCsv, dataMessage, dataBusy, onSaveReport, onShareReport)
         }
 
         if (onReminder != null) {
@@ -170,6 +172,8 @@ private fun DataCard(
     onExportCsv: (() -> Unit)?,
     message: String?,
     busy: Boolean,
+    onSaveReport: (() -> Unit)?,
+    onShareReport: (() -> Unit)?,
 ) {
     Card {
         Column {
@@ -177,7 +181,8 @@ private fun DataCard(
             Text(
                 "Save a backup file of every night and its clips wherever you choose, and restore it on this " +
                     "or another phone. Restoring adds missing nights and keeps the ones already here. " +
-                    "The spreadsheet file has one row per night. Sample nights are left out.",
+                    "The spreadsheet file has one row per night; the report is a printable summary of the last 30 nights. " +
+                    "Sample nights are left out.",
                 color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
@@ -185,6 +190,8 @@ private fun DataCard(
                 if (onBackup != null) OutlinedButton(onBackup, enabled = hasSessions && !busy) { Text("Back up") }
                 if (onRestore != null) OutlinedButton(onRestore, enabled = !busy) { Text("Restore") }
                 if (onExportCsv != null) OutlinedButton(onExportCsv, enabled = hasSessions && !busy) { Text("Export CSV") }
+                if (onSaveReport != null) OutlinedButton(onSaveReport, enabled = hasSessions && !busy) { Text("30-night report (PDF)") }
+                if (onShareReport != null) OutlinedButton(onShareReport, enabled = !busy) { Text("Share report") }
             }
             if (busy) {
                 Spacer(Modifier.height(8.dp))
