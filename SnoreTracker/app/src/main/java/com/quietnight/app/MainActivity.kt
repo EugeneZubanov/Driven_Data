@@ -163,7 +163,7 @@ private fun AppRoot(app: QuietNightApp) {
                         onDismissSummary = { freshId = null },
                         clipBytes = remember(detail) { app.repository.clipBytes(detail.id) },
                         onDeleteClips = { app.repository.deleteClips(detail.id) },
-                        recordingInProgress = rec.recording && detail.id == "s${rec.startMs}",
+                        recordingInProgress = detail.id == rec.activeSessionId,
                     )
                 }
                 tab == 0 -> RecordTab(
