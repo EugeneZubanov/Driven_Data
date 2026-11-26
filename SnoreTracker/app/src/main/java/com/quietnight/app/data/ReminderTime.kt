@@ -26,6 +26,15 @@ object ReminderTime {
         return c.timeInMillis
     }
 
-    /** "22:30" style label for a minute of the day. */
-    fun label(minuteOfDay: Int): String = "%02d:%02d".format(minuteOfDay / 60, minuteOfDay % 60)
+    /** "22:30", or "10:30 PM" (in the locale's words) when [is24] is false. */
+    fun label(minuteOfDay: Int, is24: Boolean = true): String = format(minuteOfDay, if (is24) "HH:mm" else "h:mm a")
+
+    /** Clock-hour label for chart axes: "22", or "10 PM" when [is24] is false. */
+    fun hourLabel(hour: Int, is24: Boolean): String = format(hour * 60, if (is24) "HH" else "h a")
+
+    private fun format(minuteOfDay: Int, pattern: String): String {
+        val utc = TimeZone.getTimeZone("UTC")
+        val f = java.text.SimpleDateFormat(pattern, java.util.Locale.getDefault()).apply { timeZone = utc }
+        return f.format(java.util.Date(minuteOfDay.coerceIn(0, 24 * 60 - 1) * 60_000L))
+    }
 }

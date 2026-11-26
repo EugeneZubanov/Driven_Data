@@ -52,6 +52,14 @@ class RoundTwoTest {
         val now = at(2026, 11, 26, 12, 0)
         assertTrue(ReminderTime.next(now, 5000, london) > now)
         assertEquals("07:05", ReminderTime.label(7 * 60 + 5))
+        val saved = java.util.Locale.getDefault()
+        java.util.Locale.setDefault(java.util.Locale.US)
+        try {
+            assertEquals("10:30 PM", ReminderTime.label(22 * 60 + 30, is24 = false))
+            assertEquals("12:00 AM", ReminderTime.label(0, is24 = false))
+            assertEquals("22", ReminderTime.hourLabel(22, is24 = true))
+            assertEquals("7 AM", ReminderTime.hourLabel(7, is24 = false))
+        } finally { java.util.Locale.setDefault(saved) }
     }
 
     @Test fun weightParsingAndUnits() {
