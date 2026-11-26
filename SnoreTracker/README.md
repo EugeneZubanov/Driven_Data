@@ -132,10 +132,13 @@ straight away. Bursts chopped up like syllables are treated as talking, and perf
 repeats (a ringer, an alarm) as a machine. Loud sounds that are not snoring can be reported
 separately as "talking" or "other".
 
-Levels (mild / loud / heavy: 18 and 28 dB thresholds) are measured against the quietest floor
-that held for a full minute that night, so snoring stays loud after a fan comes on. With a fan
+Levels are measured against the night's quietest minute: the lowest noise floor that held for a
+whole minute so far. Snoring 18 dB or more above it is loud, 28 dB or more heavy, anything less
+mild; a sound must first rise 11, 8 or 5.5 dB above the current floor (low, normal, high
+sensitivity) to count at all. These numbers live in one place, `Level` in `data/Session.kt`.
+Because the reference is the quietest minute, snoring stays loud after a fan comes on; with a fan
 running all night there is nothing quieter to compare with, and the same snore reads milder than
-in a silent room: the phone's microphone is not calibrated, so there is no absolute level. The
+in a silent room. The phone's microphone is not calibrated, so there is no absolute level. The
 score is the share of the listened night spent snoring, weighted mild 0.4×, loud 1×, heavy 2×.
 It is a heuristic, not a medical measurement.
 

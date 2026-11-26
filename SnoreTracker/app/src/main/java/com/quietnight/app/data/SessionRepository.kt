@@ -3,6 +3,7 @@ package com.quietnight.app.data
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONObject
+import com.quietnight.app.audio.SegmentIndex
 import java.io.File
 
 /** Stores each night as one JSON file plus a folder of WAV clips. Newest session first. */
@@ -104,21 +105,40 @@ class SessionRepository(private val root: File) {
         _sessions.value.filter(predicate).forEach { delete(it.id) }
     }
 
-    /** Bytes used by one night's clips. */
-    fun clipBytes(sessionId: String): Long =
-        clipDir(sessionId).listFiles()?.sumOf { it.length() } ?: 0L
+    /** Whole-night audio files (segments and their index), as opposed to the ten-second clips. */
+    private fun isNightAudio(f: File) = f.name == SegmentIndex.FILE || f.name.startsWith("audio-") || f.name.startsWith(SegmentIndex.FILE)
 
-    /** Bytes used by all saved clips (not counting a night waiting in the trash). */
+    /** Bytes used by one night's ten-second clips (not its whole-night audio). */
+    fun clipBytes(sessionId: String): Long =
+        clipDir(sessionId).listFiles()?.filter { it.isFile && !isNightAudio(it) }?.sumOf { it.length() } ?: 0L
+
+    /** Bytes used by one night's whole-night audio. */
+    fun audioBytes(sessionId: String): Long =
+        clipDir(sessionId).listFiles()?.filter { it.isFile && isNightAudio(it) }?.sumOf { it.length() } ?: 0L
+
+    /** Bytes used by all saved audio, clips and whole-night recordings (not counting a night in the trash). */
     fun clipBytes(): Long = clipsDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
 
-    /** Deletes a night's audio clips but keeps the night. Returns the bytes freed. */
+    /** Deletes a night's ten-second clips but keeps the night and any whole-night audio. Returns the bytes freed. */
     @Synchronized
     fun deleteClips(sessionId: String): Long {
-        val freed = clipBytes(sessionId)
-        clipDir(sessionId).deleteRecursively()
+        val files = clipDir(sessionId).listFiles()?.filter { it.isFile && !isNightAudio(it) }.orEmpty()
+        val freed = files.sumOf { it.length() }
+        files.forEach { it.delete() }
+        clipDir(sessionId).delete() // only removed if now empty
         _sessions.value.firstOrNull { it.id == sessionId }?.let { s ->
             if (s.clips.isNotEmpty()) save(s.withoutClips())
         }
+        return freed
+    }
+
+    /** Deletes a night's whole-night audio but keeps the night and its clips. Returns the bytes freed. */
+    @Synchronized
+    fun deleteNightAudio(sessionId: String): Long {
+        val files = clipDir(sessionId).listFiles()?.filter { it.isFile && isNightAudio(it) }.orEmpty()
+        val freed = files.sumOf { it.length() }
+        files.forEach { it.delete() }
+        clipDir(sessionId).delete() // only removed if now empty
         return freed
     }
 
@@ -126,8 +146,15 @@ class SessionRepository(private val root: File) {
     fun deleteClipsOlderThan(days: Int, nowMs: Long = System.currentTimeMillis()): Long {
         ensureLoaded()
         val cutoff = nowMs - days * 86_400_000L
-        return _sessions.value.filter { it.endMs < cutoff && (it.clips.isNotEmpty() || clipDir(it.id).exists()) }
+        return _sessions.value.filter { it.endMs < cutoff && (it.clips.isNotEmpty() || clipBytes(it.id) > 0) }
             .sumOf { deleteClips(it.id) }
+    }
+
+    /** Deletes the whole-night audio of nights that ended more than [days] days before [nowMs]. Returns the bytes freed. */
+    fun deleteNightAudioOlderThan(days: Int, nowMs: Long = System.currentTimeMillis()): Long {
+        ensureLoaded()
+        val cutoff = nowMs - days * 86_400_000L
+        return _sessions.value.filter { it.endMs < cutoff }.sumOf { deleteNightAudio(it.id) }
     }
 
     fun clipDir(sessionId: String) = File(clipsDir, sessionId)

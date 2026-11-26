@@ -262,6 +262,10 @@ fun TimelineChart(
     selection: Span? = null,
     /** Touch and hold: the bucket index under the finger. Null turns it off. */
     onLongPressBucket: ((Int) -> Unit)? = null,
+    /** Whole-night audio position, ms from the start of the night; null when the night has none. */
+    audioPositionMs: (() -> Long)? = null,
+    /** Tap on the chart (not a clip marker): ms from the start of the night, to cue the audio. */
+    onPlotTap: ((Long) -> Unit)? = null,
 ) {
     val hours = remember(session.id, session.startMs, session.endMs) { NightStats.hourStarts(session) }
     var zoom by rememberSaveable(session.id) { mutableStateOf<Long?>(null) }
@@ -275,6 +279,7 @@ fun TimelineChart(
     }
     val currentOnClipTap by rememberUpdatedState(onClipTap)
     val currentOnLongPress by rememberUpdatedState(onLongPressBucket)
+    val currentOnPlotTap by rememberUpdatedState(onPlotTap)
     // Keep the playing clip on screen: if it is outside the zoomed hour, move to its hour.
     LaunchedEffect(playingClip) {
         val clip = session.clips.firstOrNull { it.file == playingClip } ?: return@LaunchedEffect
@@ -309,15 +314,21 @@ fun TimelineChart(
                             if (b in session.levels.indices) cb(b)
                         },
                         onTap = { pos ->
-                            val tap = currentOnClipTap ?: return@detectTapGestures
-                            if (pos.y > 40.dp.toPx()) return@detectTapGestures
                             val span = (winEnd - winStart).toFloat()
-                            clips.minByOrNull { c ->
-                                abs((session.startMs + c.offsetSec * 1000L + CLIP_MS / 2 - winStart) / span * size.width - pos.x)
-                            }?.let { c ->
-                                val x = (session.startMs + c.offsetSec * 1000L + CLIP_MS / 2 - winStart) / span * size.width
-                                if (abs(x - pos.x) < 20.dp.toPx()) tap(c) // 40dp wide target
+                            val tap = currentOnClipTap
+                            if (tap != null && pos.y <= 40.dp.toPx()) {
+                                val hit = clips.minByOrNull { c ->
+                                    abs((session.startMs + c.offsetSec * 1000L + CLIP_MS / 2 - winStart) / span * size.width - pos.x)
+                                }?.takeIf { c ->
+                                    val x = (session.startMs + c.offsetSec * 1000L + CLIP_MS / 2 - winStart) / span * size.width
+                                    abs(x - pos.x) < 20.dp.toPx() // 40dp wide target
+                                }
+                                if (hit != null) { tap(hit); return@detectTapGestures }
                             }
+                            // Elsewhere on the chart: choose where whole-night audio starts.
+                            val cue = currentOnPlotTap ?: return@detectTapGestures
+                            val at = winStart + (span * (pos.x / size.width)).toLong()
+                            if (at in session.startMs..session.endMs) cue(at - session.startMs)
                         },
                     )
                 }
@@ -430,6 +441,16 @@ fun TimelineChart(
                                 close()
                             }
                             drawPath(path, if (isPlaying) Palette.Moon else color)
+                        }
+
+                        // whole-night audio position
+                        audioPositionMs?.let { pos ->
+                            val t = session.startMs + pos()
+                            if (t in winStart..winEnd) {
+                                val x = xOf(t).coerceIn(0f, size.width)
+                                drawLine(Palette.Text.copy(alpha = 0.85f), Offset(x, plotTop), Offset(x, plotBottom), 1.5.dp.toPx())
+                                drawCircle(Palette.Text, 4.dp.toPx(), Offset(x, plotBottom))
+                            }
                         }
 
                         // playhead of the playing clip

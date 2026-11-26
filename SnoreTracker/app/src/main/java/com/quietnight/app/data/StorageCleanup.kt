@@ -9,7 +9,10 @@ object StorageCleanup {
     /** Runs the cleanup on a background thread if one is set. Safe to call at every app start. */
     fun runInBackground(repository: SessionRepository, days: Int, onDone: (freedBytes: Long) -> Unit = {}) {
         if (days <= 0) return
-        Thread({ onDone(runCatching { repository.deleteClipsOlderThan(days) }.getOrDefault(0L)) }, "clip-cleanup").start()
+        // Clips and whole-night audio are separate deletes in the repository; the setting promises both.
+        Thread({
+            onDone(runCatching { repository.deleteClipsOlderThan(days) + repository.deleteNightAudioOlderThan(days) }.getOrDefault(0L))
+        }, "clip-cleanup").start()
     }
 
     /** "0 MB", "312 MB", "1.4 GB". */
