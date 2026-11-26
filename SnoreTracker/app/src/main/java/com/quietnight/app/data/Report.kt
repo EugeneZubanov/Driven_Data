@@ -9,7 +9,7 @@ class ReportData(
     val fromMs: Long,
     val toMs: Long,
     val days: Int,
-    /** Real (non-sample) nights in the window, oldest first. */
+    /** Real (non-sample) nights in the window that count for trends, oldest first. */
     val nights: List<Session>,
     val averageScore: Int,
     /** Seconds snoring at mild, loud and heavy, summed over the window. */
@@ -34,7 +34,7 @@ class ReportData(
         fun build(sessions: List<Session>, weight: WeightLog?, nowMs: Long, days: Int = DAYS): ReportData {
             val to = Trends.dayOf(nowMs).timeInMillis
             val from = Trends.dayOf(nowMs).apply { add(java.util.Calendar.DAY_OF_MONTH, -(days - 1)) }.timeInMillis
-            val nights = sessions.filter { !it.demo && Trends.dayOf(it).timeInMillis in from..to }.sortedBy { it.startMs }
+            val nights = sessions.filter { !it.demo && it.countsForTrends && Trends.dayOf(it).timeInMillis in from..to }.sortedBy { it.startMs }
             val snoring = IntArray(3) { l -> nights.sumOf { it.secondsByLevel[l + 1] } }
             return ReportData(
                 fromMs = from,
@@ -43,7 +43,7 @@ class ReportData(
                 nights = nights,
                 averageScore = if (nights.isEmpty()) 0 else nights.map { it.score }.average().let { Math.round(it).toInt() },
                 snoringSec = snoring,
-                recordedSec = nights.sumOf { it.levels.size.toLong() * it.bucketSec },
+                recordedSec = nights.sumOf { it.listenedSec.toLong() },
                 tags = Trends.tagEffects(nights),
                 weight = weight?.entries.orEmpty().filter { it.dayMs in from..to }.sortedBy { it.dayMs },
                 pounds = weight?.pounds ?: false,

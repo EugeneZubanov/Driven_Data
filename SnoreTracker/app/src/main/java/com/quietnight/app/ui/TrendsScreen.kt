@@ -3,6 +3,8 @@ package com.quietnight.app.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -47,13 +49,22 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrendsScreen(
-    sessions: List<Session>,
+    allSessions: List<Session>,
     onOpenNight: (String) -> Unit = {},
     weight: WeightLog? = null,
     onWeight: (((WeightLog) -> WeightLog) -> Unit)? = null,
+    onSaveReport: (() -> Unit)? = null,
+    onShareReport: (() -> Unit)? = null,
+    reportStatus: String? = null,
 ) {
+    // Test runs and nights with under an hour listened to would distort every average here.
+    val sessions = remember(allSessions) { Trends.counted(allSessions) }
     if (sessions.isEmpty()) {
-        EmptyState("No trends yet", "Trends appear once you have recorded a few nights.")
+        EmptyState(
+            "No trends yet",
+            if (allSessions.isEmpty()) "Trends appear once you have recorded a few nights."
+            else "Trends appear once you have a night with at least an hour recorded. Test runs are left out.",
+        )
         return
     }
     var period by remember { mutableStateOf(Period.DAYS) }
@@ -110,7 +121,7 @@ fun TrendsScreen(
                         )
                     }
                 }
-                val total = bar.sessions.sumOf { it.levels.size * it.bucketSec }.coerceAtLeast(1).toFloat()
+                val total = bar.sessions.sumOf { it.listenedSec }.coerceAtLeast(1).toFloat()
                 ScoreDial(bar.score, FloatArray(3) { i -> bar.sessions.sumOf { it.secondsByLevel[i + 1] } / total }, 84.dp)
             }
         }
@@ -126,6 +137,27 @@ fun TrendsScreen(
         if (weight != null && onWeight != null) {
             Spacer(Modifier.height(12.dp))
             WeightCard(sessions, weight, onWeight)
+        }
+        if (onSaveReport != null) {
+            Spacer(Modifier.height(12.dp))
+            Card {
+                Column {
+                    SectionTitle("Share a summary")
+                    Text(
+                        "A one-page PDF of the last 30 nights to print or send, for example to a doctor or partner.",
+                        color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onSaveReport) { Text("Save report") }
+                        if (onShareReport != null) OutlinedButton(onShareReport) { Text("Share") }
+                    }
+                    if (reportStatus != null) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(reportStatus, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
         }
         Spacer(Modifier.height(24.dp))
     }

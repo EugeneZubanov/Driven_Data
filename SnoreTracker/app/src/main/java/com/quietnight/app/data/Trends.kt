@@ -46,6 +46,9 @@ object Trends {
     /** Nights needed both with and without a tag before a comparison is shown. */
     const val MIN_NIGHTS = 5
 
+    /** Nights that belong in trends: not test runs, and at least an hour listened to. */
+    fun counted(sessions: List<Session>): List<Session> = sessions.filter { it.countsForTrends }
+
     /** The night a session belongs to is the calendar day it ended on. */
     fun dayOf(s: Session): Calendar = dayOf(s.endMs)
 
