@@ -13,6 +13,11 @@ data class Prefs(
     /** Tags that will be attached to the next recording. */
     val selectedTags: Set<String> = emptySet(),
     val customTags: Set<String> = emptySet(),
+    /** The first-run introduction has been seen or skipped. */
+    val introSeen: Boolean = false,
+    /** Daily bedtime reminder, at [reminderMinute] minutes after local midnight. */
+    val reminderOn: Boolean = false,
+    val reminderMinute: Int = 22 * 60 + 30,
 ) {
     val thresholdDb: Float get() = when (sensitivity) { 0 -> 11f; 2 -> 5.5f; else -> 8f }
 }
@@ -27,6 +32,9 @@ class Settings(context: Context) {
             saveClips = sp.getBoolean("saveClips", true),
             selectedTags = sp.getStringSet("selectedTags", emptySet())!!.toSet(),
             customTags = sp.getStringSet("customTags", emptySet())!!.toSet(),
+            introSeen = sp.getBoolean("introSeen", false),
+            reminderOn = sp.getBoolean("reminderOn", false),
+            reminderMinute = sp.getInt("reminderMinute", 22 * 60 + 30),
         )
     )
     val prefs: StateFlow<Prefs> = _prefs
@@ -40,6 +48,9 @@ class Settings(context: Context) {
             .putBoolean("saveClips", p.saveClips)
             .putStringSet("selectedTags", p.selectedTags)
             .putStringSet("customTags", p.customTags)
+            .putBoolean("introSeen", p.introSeen)
+            .putBoolean("reminderOn", p.reminderOn)
+            .putInt("reminderMinute", p.reminderMinute)
             .apply()
     }
 }

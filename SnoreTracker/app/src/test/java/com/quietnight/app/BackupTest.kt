@@ -50,7 +50,7 @@ class BackupTest {
         JSONObject().put("format", Backup.FORMAT).put("version", 1).put("sessions", JSONArray(sessions.toList())).toString().toByteArray()
 
     private fun restore(bytes: ByteArray, store: Store, existing: Set<String> = emptySet()) =
-        Backup.restore(ByteArrayInputStream(bytes), existing, tmp.newFolder(), store::clipDir) { store.saved += it }
+        Backup.restore(ByteArrayInputStream(bytes), existing, tmp.newFolder(), store::clipDir, save = { store.saved += it })
 
     @Test fun roundTripKeepsNightsAndClipsAndSkipsSamples() {
         val src = Store(tmp.newFolder())
@@ -69,6 +69,14 @@ class BackupTest {
         assertEquals(a.tags, got.tags)
         assertEquals(1, got.clips.size)
         assertArrayEquals(byteArrayOf(1, 2, 3, 4), dst.clipFile("s1", "c3.wav").readBytes())
+    }
+
+    @Test fun restoreReportsProgress() {
+        val seen = ArrayList<Int>()
+        val bytes = zip(Backup.INDEX to index(session("a").toJson()), "clips/a/c0.wav" to byteArrayOf(1), "clips/a/c1.wav" to byteArrayOf(1))
+        val store = Store(tmp.newFolder())
+        Backup.restore(ByteArrayInputStream(bytes), emptySet(), tmp.newFolder(), store::clipDir, save = { store.saved += it }, onProgress = { seen += it })
+        assertEquals(listOf(1, 2, 3), seen)
     }
 
     @Test fun clipsMissingFromZipAreDroppedFromTheNight() {

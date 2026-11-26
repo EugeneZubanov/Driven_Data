@@ -7,11 +7,16 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.TimeInput
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -28,6 +33,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.quietnight.app.data.Prefs
+import com.quietnight.app.data.ReminderTime
+import com.quietnight.app.data.WeightLog
 
 @Composable
 fun SettingsScreen(
@@ -42,6 +49,11 @@ fun SettingsScreen(
     onRestore: (() -> Unit)? = null,
     onExportCsv: (() -> Unit)? = null,
     dataMessage: String? = null,
+    dataBusy: Boolean = false,
+    onShowIntro: (() -> Unit)? = null,
+    onReminder: ((on: Boolean, minuteOfDay: Int) -> Unit)? = null,
+    weight: WeightLog? = null,
+    onWeight: (((WeightLog) -> WeightLog) -> Unit)? = null,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
@@ -95,7 +107,17 @@ fun SettingsScreen(
 
         if (onBackup != null || onRestore != null || onExportCsv != null) {
             Spacer(Modifier.height(12.dp))
-            DataCard(hasSessions, onBackup, onRestore, onExportCsv, dataMessage)
+            DataCard(hasSessions, onBackup, onRestore, onExportCsv, dataMessage, dataBusy)
+        }
+
+        if (onReminder != null) {
+            Spacer(Modifier.height(12.dp))
+            ReminderCard(prefs.reminderOn, prefs.reminderMinute, onReminder)
+        }
+
+        if (weight != null && onWeight != null) {
+            Spacer(Modifier.height(12.dp))
+            WeightSettingsCard(weight, onWeight)
         }
 
         Spacer(Modifier.height(12.dp))
@@ -111,6 +133,10 @@ fun SettingsScreen(
                         "pauses in breathing or daytime sleepiness, talk to a doctor.",
                     color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
                 )
+                if (onShowIntro != null) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onShowIntro) { Text("Show the introduction again") }
+                }
             }
         }
 
@@ -140,6 +166,7 @@ private fun DataCard(
     onRestore: (() -> Unit)?,
     onExportCsv: (() -> Unit)?,
     message: String?,
+    busy: Boolean,
 ) {
     Card {
         Column {
@@ -152,14 +179,50 @@ private fun DataCard(
             )
             Spacer(Modifier.height(8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (onBackup != null) OutlinedButton(onBackup, enabled = hasSessions) { Text("Back up") }
-                if (onRestore != null) OutlinedButton(onRestore) { Text("Restore") }
-                if (onExportCsv != null) OutlinedButton(onExportCsv, enabled = hasSessions) { Text("Export CSV") }
+                if (onBackup != null) OutlinedButton(onBackup, enabled = hasSessions && !busy) { Text("Back up") }
+                if (onRestore != null) OutlinedButton(onRestore, enabled = !busy) { Text("Restore") }
+                if (onExportCsv != null) OutlinedButton(onExportCsv, enabled = hasSessions && !busy) { Text("Export CSV") }
+            }
+            if (busy) {
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(Modifier.fillMaxWidth(), color = Palette.Moon, trackColor = Palette.SurfaceHigh)
             }
             if (message != null) {
                 Spacer(Modifier.height(6.dp))
                 Text(message, style = MaterialTheme.typography.bodyMedium)
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReminderCard(on: Boolean, minute: Int, onReminder: (Boolean, Int) -> Unit) {
+    var picking by remember { mutableStateOf(false) }
+    Card {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    SectionTitle("Bedtime reminder")
+                    Text(
+                        "A daily notification to start recording. It may arrive a few minutes late to save battery.",
+                        color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(on, { onReminder(it, minute) })
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton({ picking = true }) { Text("Time: ${ReminderTime.label(minute)}") }
+        }
+    }
+    if (picking) {
+        val state = rememberTimePickerState(minute / 60, minute % 60, is24Hour = true)
+        AlertDialog(
+            onDismissRequest = { picking = false },
+            title = { Text("Reminder time") },
+            text = { TimeInput(state) },
+            confirmButton = { TextButton({ picking = false; onReminder(true, state.hour * 60 + state.minute) }) { Text("Set") } },
+            dismissButton = { TextButton({ picking = false }) { Text("Cancel") } },
+        )
     }
 }

@@ -45,6 +45,10 @@ import com.quietnight.app.ui.SessionDetailScreen
 import com.quietnight.app.ui.SettingsScreen
 import com.quietnight.app.ui.TrendsScreen
 import com.quietnight.app.ui.rememberDataActions
+import com.quietnight.app.ui.IntroScreen
+import com.quietnight.app.ui.rememberReminderToggle
+import com.quietnight.app.data.WeightStore
+import androidx.compose.runtime.remember
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,6 +67,9 @@ private fun AppRoot(app: QuietNightApp) {
     val rec by RecordingService.state.collectAsStateWithLifecycle()
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var showIntro by rememberSaveable { mutableStateOf(false) }
+    val weightStore = remember { WeightStore.get(context.filesDir) }
+    val weight by weightStore.log.collectAsStateWithLifecycle()
     var detailId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
@@ -98,6 +105,11 @@ private fun AppRoot(app: QuietNightApp) {
     val detail = sessions.firstOrNull { it.id == detailId }
     BackHandler(enabled = detail != null || tab != 0) {
         if (detail != null) detailId = null else tab = 0
+    }
+
+    if (!prefs.introSeen || showIntro) {
+        IntroScreen(onDone = { showIntro = false; app.settings.update { it.copy(introSeen = true) } })
+        return
     }
 
     Scaffold(
@@ -149,7 +161,7 @@ private fun AppRoot(app: QuietNightApp) {
                     onDelete = app.repository::trash,
                     onUndoDelete = { app.repository.restore(it) },
                 ) { detailId = it }
-                tab == 2 -> TrendsScreen(sessions, onOpenNight = { tab = 1; detailId = it })
+                tab == 2 -> TrendsScreen(sessions, onOpenNight = { tab = 1; detailId = it }, weight = weight, onWeight = weightStore::update)
                 else -> {
                     val data = rememberDataActions(app)
                     SettingsScreen(
@@ -164,6 +176,11 @@ private fun AppRoot(app: QuietNightApp) {
                     onRestore = data.onRestore,
                     onExportCsv = data.onExportCsv,
                     dataMessage = data.message,
+                    dataBusy = data.busy,
+                    onShowIntro = { showIntro = true },
+                    onReminder = rememberReminderToggle(app),
+                    weight = weight,
+                    onWeight = weightStore::update,
                 )
                 }
             }

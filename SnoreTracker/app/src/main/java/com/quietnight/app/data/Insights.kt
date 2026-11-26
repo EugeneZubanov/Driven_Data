@@ -100,6 +100,19 @@ object Insights {
         )
     }
 
+    /**
+     * For each night (oldest first), the average score of that night and up to [window] - 1 nights before it,
+     * keyed by the day the night ended. Only nights from the [window]th onwards are included, so every
+     * point averages a full window.
+     */
+    fun rollingSeries(sessions: List<Session>, window: Int = 7): List<Pair<Long, Float>> {
+        val sorted = sessions.sortedBy { it.startMs }
+        if (sorted.size < window) return emptyList()
+        return (window - 1 until sorted.size).map { i ->
+            Trends.dayOf(sorted[i]).timeInMillis to sorted.subList(i - window + 1, i + 1).map { it.score }.average().toFloat()
+        }
+    }
+
     /** Score band 0..4 used to shade the calendar: 0–9, 10–19, 20–34, 35–49, 50+. */
     val bandFloors = intArrayOf(0, 10, 20, 35, 50)
 
