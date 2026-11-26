@@ -153,6 +153,24 @@ class ResultsLogicTest {
         assertEquals("12.5 MB", NightStats.formatBytes(12L * 1024 * 1024 + 512 * 1024))
     }
 
+    @Test fun tipPicksOneFact() {
+        val q = ".".repeat(20)
+        assertEquals("Most snoring came in the last third of the night.", NightStats.tip(night(q + q + "2".repeat(10) + ".".repeat(10))))
+        assertEquals("Most snoring came in the first third of the night.", NightStats.tip(night("2".repeat(10) + ".".repeat(50))))
+        // Spread evenly: falls through to the level mix.
+        val even = ("3...." ).repeat(12)
+        assertEquals("Over half of the snoring was heavy.", NightStats.tip(night(even)))
+        assertEquals("Most of the snoring was mild.", NightStats.tip(night("1....".repeat(12))))
+        val mixed = "1....2....".repeat(6)
+        assertNull(NightStats.tip(night(mixed)))
+        assertEquals(
+            "You tagged Alcohol. Trends shows how nights with it compare once there are a few.",
+            NightStats.tip(night(mixed, tags = listOf("r:Nasal strip", "f:Alcohol"))),
+        )
+        assertNull(NightStats.tip(night("2222" + q))) // under 5 minutes of snoring
+        assertNull(NightStats.tip(night("")))
+    }
+
     @Test fun shareTextHasTheEssentials() {
         val s = night("....222222....", tags = listOf("f:Alcohol", "r:Nasal strip")).withEdits(listOf("f:Alcohol", "r:Nasal strip"), "Slept late ")
         val text = NightStats.shareText(s, listOf(s), utc, Locale.US)

@@ -229,6 +229,29 @@ object NightStats {
         return "$first $second"
     }
 
+    /**
+     * At most one plain observation about the night, from its own facts: where in the night the
+     * snoring sat, how loud it mostly was, or a tagged factor. Null when there is nothing useful.
+     */
+    fun tip(session: Session): String? {
+        val n = session.levels.size
+        if (n == 0 || session.snoringSec < 5 * 60) return null
+        val thirds = IntArray(3)
+        for (i in 0 until n) if (session.effectiveLevel(i) != Level.QUIET) thirds[(i * 3L / n).toInt()]++
+        val total = thirds.sum().toFloat()
+        val byLevel = session.secondsByLevel
+        val snoring = session.snoringSec.toFloat()
+        val factor = session.tags.firstOrNull { !Tags.isRemedy(it) }
+        return when {
+            thirds[2] / total >= 0.5f -> "Most snoring came in the last third of the night."
+            thirds[0] / total >= 0.5f -> "Most snoring came in the first third of the night."
+            byLevel[Level.HEAVY] / snoring >= 0.5f -> "Over half of the snoring was heavy."
+            byLevel[Level.MILD] / snoring >= 0.7f -> "Most of the snoring was mild."
+            factor != null -> "You tagged ${Tags.label(factor)}. Trends shows how nights with it compare once there are a few."
+            else -> null
+        }
+    }
+
     /** "830 KB", "12.4 MB". */
     fun formatBytes(bytes: Long): String = when {
         bytes < 1024 -> "$bytes B"

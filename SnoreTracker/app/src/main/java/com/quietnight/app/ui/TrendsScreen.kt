@@ -65,9 +65,7 @@ fun TrendsScreen(
     val average = sessions.map { it.score }.average().toFloat()
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-        Spacer(Modifier.height(20.dp))
-        Text("Trends", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
-        Text("Snore score over time. Lower is quieter.", color = Palette.Muted, style = MaterialTheme.typography.bodyMedium)
+        ScreenTitle("Trends", subtitle = "Snore score over time. Lower is quieter.")
         Spacer(Modifier.height(16.dp))
 
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {

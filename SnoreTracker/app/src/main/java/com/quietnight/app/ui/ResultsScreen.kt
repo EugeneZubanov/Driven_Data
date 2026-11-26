@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
@@ -163,13 +164,9 @@ fun ResultsListScreen(
             val monthAll = remember(shown) { shown.groupBy { fmt("MMMM yyyy", it.endMs) } }
             LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
                 item {
-                    Spacer(Modifier.height(20.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text("Results", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
-                        if (clipBytes != null && clipBytes > 0) {
-                            Text("Clips use ${NightStats.formatBytes(clipBytes)}", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
+                    ScreenTitle("Results", trailing = if (clipBytes != null && clipBytes > 0) {
+                        { Text("Clips use ${NightStats.formatBytes(clipBytes)}", color = Palette.Muted, style = MaterialTheme.typography.bodySmall) }
+                    } else null)
                 }
                 if (tags.isNotEmpty()) {
                     item(key = "filters") {
@@ -247,16 +244,7 @@ fun ResultsListScreen(
 
 @Composable
 private fun TagChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label) },
-        colors = FilterChipDefaults.filterChipColors(
-            labelColor = Palette.Text,
-            selectedContainerColor = Palette.Moon,
-            selectedLabelColor = Palette.Background,
-        ),
-    )
+    ChoiceChip(label, selected, onClick = onClick)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -584,6 +572,14 @@ fun SessionDetailScreen(
                     Icon(Icons.AutoMirrored.Filled.CompareArrows, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Compare with another night")
+                }
+            }
+            remember(session) { NightStats.tip(session) }?.let { tip ->
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Outlined.Lightbulb, null, tint = Palette.Muted, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(tip, color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
             Spacer(Modifier.height(24.dp))

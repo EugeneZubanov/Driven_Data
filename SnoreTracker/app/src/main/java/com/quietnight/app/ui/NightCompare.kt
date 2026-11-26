@@ -1,6 +1,8 @@
 package com.quietnight.app.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -76,13 +78,15 @@ fun ClipControls(session: Session, player: ClipPlayer) {
             )
         }
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClickLabel = "Toggle auto-play") { player.autoAdvance = !player.autoAdvance },
+            // One focusable row that announces as a switch with its label and on/off state.
+            Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .toggleable(player.autoAdvance, role = Role.Switch) { player.autoAdvance = it },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("Play clips one after another", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
             Switch(
                 checked = player.autoAdvance,
-                onCheckedChange = { player.autoAdvance = it },
+                onCheckedChange = null,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Palette.Background,
                     checkedTrackColor = Palette.Moon,

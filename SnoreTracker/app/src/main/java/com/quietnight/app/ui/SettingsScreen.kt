@@ -30,6 +30,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.quietnight.app.BuildConfig
@@ -58,8 +60,7 @@ fun SettingsScreen(
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-        Spacer(Modifier.height(20.dp))
-        Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+        ScreenTitle("Settings")
         Spacer(Modifier.height(16.dp))
 
         Card {
@@ -88,7 +89,7 @@ fun SettingsScreen(
                         color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                Switch(prefs.saveClips, { v -> onPrefs { it.copy(saveClips = v) } })
+                Switch(prefs.saveClips, { v -> onPrefs { it.copy(saveClips = v) } }, Modifier.semantics { contentDescription = "Keep audio clips" })
             }
         }
 
@@ -213,7 +214,7 @@ private fun ReminderCard(on: Boolean, minute: Int, onReminder: (Boolean, Int) ->
                         color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                Switch(on, { onReminder(it, minute) })
+                Switch(on, { onReminder(it, minute) }, Modifier.semantics { contentDescription = "Bedtime reminder" })
             }
             Spacer(Modifier.height(8.dp))
             OutlinedButton({ picking = true }) { Text("Time: ${ReminderTime.label(minute, is24)}") }

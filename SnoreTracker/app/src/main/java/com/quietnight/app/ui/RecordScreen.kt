@@ -42,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -529,7 +530,7 @@ private fun WakeCard(wake: WakeSetting, onWake: (WakeSetting) -> Unit, framed: B
                         color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                Switch(checked = wake.enabled, onCheckedChange = { onWake(wake.copy(enabled = it)) })
+                Switch(checked = wake.enabled, onCheckedChange = { onWake(wake.copy(enabled = it)) }, modifier = Modifier.semantics { contentDescription = "Wake-up alarm" })
             }
             if (wake.enabled) {
                 Spacer(Modifier.height(4.dp))

@@ -54,6 +54,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.material3.FilterChip
 import androidx.compose.ui.semantics.semantics
 import com.quietnight.app.data.Clip
 import com.quietnight.app.data.Span
@@ -97,7 +99,29 @@ fun Card(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
 
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {
-    Text(text, modifier = modifier, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    Text(text, modifier = modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+}
+
+/** Top-of-tab title used by Results, Trends and Settings: same size, weight and top spacing, marked as a heading. */
+@Composable
+fun ScreenTitle(text: String, modifier: Modifier = Modifier, subtitle: String? = null, trailing: @Composable (() -> Unit)? = null) {
+    Column(modifier.fillMaxWidth()) {
+        Spacer(Modifier.height(20.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text, Modifier.weight(1f).semantics { heading() },
+                style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold,
+            )
+            trailing?.invoke()
+        }
+        if (subtitle != null) Text(subtitle, color = Palette.Muted, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/** One choice in a row of options or filters; the same look as the Settings and Record chips. */
+@Composable
+fun ChoiceChip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FilterChip(selected = selected, onClick = onClick, label = { Text(label) }, modifier = modifier)
 }
 
 /**
@@ -441,19 +465,7 @@ fun TimelineChart(
                 Text("Zoom", style = MaterialTheme.typography.bodySmall, color = Palette.Muted)
                 for (h in hours) {
                     val selected = zoom == h
-                    Text(
-                        hourLabel(h),
-                        Modifier
-                            .minimumInteractiveComponentSize()
-                            .clip(RoundedCornerShape(50))
-                            .background(if (selected) Palette.Moon else Palette.SurfaceHigh)
-                            .clickable(onClickLabel = if (selected) "Show whole night" else "Zoom to this hour") {
-                                zoom = if (selected) null else h
-                            }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (selected) Palette.Background else Palette.Text,
-                    )
+                    ChoiceChip(hourLabel(h), selected) { zoom = if (selected) null else h }
                 }
             }
         }
