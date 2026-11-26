@@ -39,6 +39,13 @@ object Weight {
     fun put(log: WeightLog, dayMs: Long, kg: Float): WeightLog =
         log.copy(entries = (log.entries.filter { it.dayMs != dayMs } + WeightEntry(dayMs, kg)).sortedBy { it.dayMs })
 
+    /** Adds readings from [incoming] for days that [local] has none for. Returns the new log and how many were added. */
+    fun merge(local: WeightLog, incoming: WeightLog): Pair<WeightLog, Int> {
+        val have = local.entries.map { it.dayMs }.toSet()
+        val add = incoming.entries.filter { it.dayMs !in have }
+        return local.copy(entries = (local.entries + add).sortedBy { it.dayMs }) to add.size
+    }
+
     fun remove(log: WeightLog, dayMs: Long): WeightLog = log.copy(entries = log.entries.filter { it.dayMs != dayMs })
 
     fun toJson(log: WeightLog): JSONObject = JSONObject()
@@ -73,6 +80,13 @@ class WeightStore(private val file: File) {
         val tmp = File(file.parentFile, file.name + ".tmp")
         tmp.writeText(Weight.toJson(next).toString())
         tmp.renameTo(file)
+    }
+
+    /** Merges a restored log into this one; returns the number of days added. */
+    fun mergeFrom(incoming: WeightLog): Int {
+        var added = 0
+        update { local -> Weight.merge(local, incoming).also { added = it.second }.first }
+        return added
     }
 
     companion object {

@@ -13,7 +13,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-class RestoreResult(val added: Int, val skipped: Int, val invalid: Int)
+class RestoreResult(val added: Int, val skipped: Int, val invalid: Int, val weightsAdded: Int = 0)
 
 class BackupException(message: String) : IOException(message)
 
@@ -21,6 +21,8 @@ class BackupException(message: String) : IOException(message)
  * Backup zip layout:
  *   nights.json                     {"format":"quietnight-backup","version":1,"sessions":[...]}
  *   clips/<sessionId>/<clipFile>    audio clips, as stored on the phone
+ * nights.json may also hold "weight" (the weight log, see [Weight.toJson]); older backups without it
+ * restore fine.
  * Sample nights are never exported.
  */
 object Backup {
@@ -42,7 +44,7 @@ object Backup {
     fun fileName(nowMs: Long) = "quiet-night-backup-${SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(nowMs))}.zip"
 
     /** Writes every non-sample session and its clips. Returns the number of nights written. */
-    fun export(sessions: List<Session>, clipFile: (String, String) -> File, out: OutputStream): Int {
+    fun export(sessions: List<Session>, clipFile: (String, String) -> File, out: OutputStream, weight: WeightLog? = null): Int {
         val real = sessions.filter { !it.demo }
         ZipOutputStream(out.buffered()).use { zip ->
             zip.putNextEntry(ZipEntry(INDEX))
@@ -50,6 +52,7 @@ object Backup {
                 .put("format", FORMAT)
                 .put("version", VERSION)
                 .put("sessions", JSONArray().also { arr -> real.forEach { arr.put(it.toJson()) } })
+            if (weight != null && weight.entries.isNotEmpty()) index.put("weight", Weight.toJson(weight))
             zip.write(index.toString().toByteArray())
             zip.closeEntry()
             for (s in real) for (c in s.clips) {
@@ -76,6 +79,7 @@ object Backup {
         clipDir: (String) -> File,
         save: (Session) -> Unit,
         onProgress: (filesRead: Int) -> Unit = {},
+        mergeWeight: ((WeightLog) -> Int)? = null,
     ): RestoreResult {
         staging.deleteRecursively()
         staging.mkdirs()
@@ -135,7 +139,9 @@ object Backup {
                 save(Session(s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags, clips, demo = false, interruptedAtMs = s.interruptedAtMs, gaps = s.gaps, note = s.note))
                 added++
             }
-            return RestoreResult(added, skipped, invalid)
+            // Weight readings: days already logged on this phone win, as with nights.
+            val weightsAdded = root.optJSONObject("weight")?.let { w -> mergeWeight?.invoke(Weight.fromJson(w)) } ?: 0
+            return RestoreResult(added, skipped, invalid, weightsAdded)
         } finally {
             staging.deleteRecursively()
         }
@@ -149,7 +155,9 @@ object Backup {
             s.levels.size.toLong() * s.bucketSec <= MAX_NIGHT_MS / 1000 &&
             s.levels.all { it in 0..3 } &&
             s.tags.size <= 50 && s.tags.all { it.length <= 60 } &&
-            s.clips.size <= 100
+            s.clips.size <= 100 &&
+            s.gaps.size <= 1000 && s.gaps.all { it.fromSec in 0..it.toSec } &&
+            s.note.length <= 2000
 
     private fun readLimited(input: InputStream, limit: Long): ByteArray {
         val out = java.io.ByteArrayOutputStream()
@@ -183,11 +191,13 @@ object Backup {
 
 /** One row per night for spreadsheets. Sample nights are left out. */
 object Csv {
-    const val HEADER = "date,start,end,duration_min,mild_min,loud_min,heavy_min,score,tags"
+    const val HEADER = "date,start,end,duration_min,mild_min,loud_min,heavy_min,score,tags,weight_kg"
 
     fun fileName(nowMs: Long) = "quiet-night-${SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(nowMs))}.csv"
 
-    fun export(sessions: List<Session>): String {
+    /** [weight] fills the weight_kg column for nights whose date has a logged weight; blank otherwise. */
+    fun export(sessions: List<Session>, weight: WeightLog? = null): String {
+        val byDay = weight?.entries.orEmpty().associateBy { it.dayMs }
         val date = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val time = SimpleDateFormat("HH:mm", Locale.US)
         val sb = StringBuilder(HEADER).append("\r\n")
@@ -200,7 +210,8 @@ object Csv {
                 .append(s.secondsByLevel[Level.LOUD] / 60).append(',')
                 .append(s.secondsByLevel[Level.HEAVY] / 60).append(',')
                 .append(s.score).append(',')
-                .append(field(s.tags.joinToString("; ") { Tags.label(it) }))
+                .append(field(s.tags.joinToString("; ") { Tags.label(it) })).append(',')
+                .append(byDay[Trends.dayOf(s).timeInMillis]?.let { String.format(Locale.US, "%.1f", it.kg) } ?: "")
                 .append("\r\n")
         }
         return sb.toString()

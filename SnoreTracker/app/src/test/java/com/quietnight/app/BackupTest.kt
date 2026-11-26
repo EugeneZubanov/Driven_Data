@@ -5,6 +5,10 @@ import com.quietnight.app.data.BackupException
 import com.quietnight.app.data.Clip
 import com.quietnight.app.data.Csv
 import com.quietnight.app.data.Session
+import com.quietnight.app.data.Gap
+import com.quietnight.app.data.Weight
+import com.quietnight.app.data.WeightEntry
+import com.quietnight.app.data.WeightLog
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
@@ -149,10 +153,60 @@ class BackupTest {
         assertEquals(Csv.HEADER, lines[0])
         assertEquals(3, lines.size)
         val cols = lines[1].split(',')
-        assertEquals(9, cols.size)
+        assertEquals(10, cols.size)
+        assertEquals("", cols[9]) // no weight logged
         assertEquals("360", cols[3]) // 6 h
         assertEquals("90", cols[4]); assertEquals("90", cols[5]); assertEquals("90", cols[6])
         assertEquals("Alcohol", cols[8])
+    }
+
+    @Test fun csvFillsWeightForTheNightsDate() {
+        val s = session("a")
+        val day = com.quietnight.app.data.Trends.dayOf(s).timeInMillis
+        val csv = Csv.export(listOf(s), WeightLog(listOf(WeightEntry(day, 81.25f))))
+        assertEquals("81.3", csv.trimEnd().split("\r\n")[1].split(',')[9])
+    }
+
+    @Test fun weightTravelsWithBackupAndMergesByDay() {
+        val out = ByteArrayOutputStream()
+        val sent = WeightLog(listOf(WeightEntry(100, 80f), WeightEntry(200, 79f)), pounds = true)
+        Backup.export(listOf(session("s1")), { _, _ -> File("none") }, out, sent)
+        var local = WeightLog(listOf(WeightEntry(200, 70f)))
+        val r = Backup.restore(
+            ByteArrayInputStream(out.toByteArray()), emptySet(), tmp.newFolder(), Store(tmp.newFolder())::clipDir, save = {},
+            mergeWeight = { incoming -> Weight.merge(local, incoming).let { (log, n) -> local = log; n } },
+        )
+        assertEquals(1, r.weightsAdded)
+        assertEquals(listOf(100L to 80f, 200L to 70f), local.entries.map { it.dayMs to it.kg }) // local day kept
+        assertFalse(local.pounds) // unit preference stays local
+    }
+
+    @Test fun backupWithoutWeightStillRestores() {
+        var called = false
+        val r = Backup.restore(
+            ByteArrayInputStream(zip(Backup.INDEX to index(session("a").toJson()))), emptySet(), tmp.newFolder(),
+            Store(tmp.newFolder())::clipDir, save = {}, mergeWeight = { called = true; 0 },
+        )
+        assertEquals(1, r.added); assertEquals(0, r.weightsAdded); assertFalse(called)
+    }
+
+    @Test fun gapsNoteAndInterruptionSurviveRoundTrip() {
+        val base = session("g")
+        val s = Session(
+            id = base.id, startMs = base.startMs, endMs = base.endMs, bucketSec = base.bucketSec, levels = base.levels,
+            amps = base.amps, tags = base.tags, clips = emptyList(), interruptedAtMs = base.endMs,
+            gaps = listOf(Gap(60, 120)), note = "Blocked nose, slept badly",
+        )
+        val out = ByteArrayOutputStream()
+        Backup.export(listOf(s), { _, _ -> File("none") }, out)
+        val dst = Store(tmp.newFolder())
+        restore(out.toByteArray(), dst)
+        val got = dst.saved.single()
+        assertEquals(s.interruptedAtMs, got.interruptedAtMs)
+        assertEquals(s.gaps, got.gaps)
+        assertEquals(s.note, got.note)
+        val badGap = s.toJson().put("gaps", org.json.JSONArray().put(org.json.JSONArray().put(50).put(10)))
+        assertEquals(1, restore(zip(Backup.INDEX to index(badGap)), Store(tmp.newFolder())).invalid)
     }
 
     @Test fun csvFieldsAreQuotedAndFormulasDefused() {
