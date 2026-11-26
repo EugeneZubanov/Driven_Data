@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
@@ -81,6 +82,7 @@ import androidx.compose.ui.unit.dp
 import com.quietnight.app.data.Level
 import com.quietnight.app.data.NightStats
 import com.quietnight.app.data.Session
+import com.quietnight.app.audio.AudioSegment
 import com.quietnight.app.data.Span
 import com.quietnight.app.data.Clip
 import com.quietnight.app.data.Tags
@@ -165,7 +167,7 @@ fun ResultsListScreen(
             LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
                 item {
                     ScreenTitle("Results", trailing = if (clipBytes != null && clipBytes > 0) {
-                        { Text("Clips use ${NightStats.formatBytes(clipBytes)}", color = Palette.Muted, style = MaterialTheme.typography.bodySmall) }
+                        { Text("Audio uses ${NightStats.formatBytes(clipBytes)}", color = Palette.Muted, style = MaterialTheme.typography.bodySmall) }
                     } else null)
                 }
                 if (tags.isNotEmpty()) {
@@ -340,7 +342,17 @@ fun SessionDetailScreen(
     onDeleteClips: (() -> Unit)? = null,
     /** This night is still being recorded: no editing or deleting. */
     recordingInProgress: Boolean = false,
+    /** Whole-night audio segments and the folder they are in; empty when the night has none. */
+    audioSegments: List<AudioSegment> = emptyList(),
+    audioDir: File? = null,
+    audioBytes: Long? = null,
+    /** Deletes the whole-night audio and keeps the night. Null hides the action. */
+    onDeleteAudio: (() -> Unit)? = null,
+    nightAudio: NightAudioPlayer? = if (audioSegments.isNotEmpty() && audioDir != null) rememberNightAudioPlayer(session.id, audioSegments, audioDir) else null,
 ) {
+    // One sound at a time: a clip stops the night audio and the other way round.
+    LaunchedEffect(player.playing) { if (player.playing != null) nightAudio?.pause() }
+    LaunchedEffect(nightAudio?.playing) { if (nightAudio?.playing == true) player.stop() }
     val canEdit = onSave != null && !recordingInProgress
     var selection by remember(session.id) { mutableStateOf<Span?>(null) }
     val markNotSnoring: (Span) -> Unit = { span -> onSave?.invoke(session.withNotSnoring(session.notSnoring + span)) }
@@ -452,6 +464,8 @@ fun SessionDetailScreen(
                 onClipTap = { player.toggle(it.file, clipFile(it.file)) },
                 selection = selection,
                 onLongPressBucket = if (canEdit) { b -> selection = NightStats.episodeAt(session, b) } else null,
+                audioPositionMs = nightAudio?.let { a -> { a.positionMs } },
+                onPlotTap = nightAudio?.let { a -> { ms -> a.cue(ms) } },
             )
             Spacer(Modifier.height(4.dp))
             LevelLegend(showGaps = session.gaps.isNotEmpty())
@@ -506,6 +520,11 @@ fun SessionDetailScreen(
                     Spacer(Modifier.width(6.dp))
                     Text("Saved clip, tap to play", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
                 }
+            }
+
+            if (nightAudio != null) {
+                Spacer(Modifier.height(12.dp))
+                NightAudioCard(session, nightAudio, audioBytes, onDeleteAudio?.takeIf { !recordingInProgress }?.let { del -> { nightAudio.pause(); del() } })
             }
 
             // Then the details.
@@ -771,7 +790,7 @@ private fun ClipList(
         AlertDialog(
             onDismissRequest = { confirm = false },
             title = { Text("Delete this night's clips?") },
-            text = { Text("The recordings are removed to free space. The timeline, score and notes stay.") },
+            text = { Text("The ten-second clips are removed to free space. The timeline, score, notes and any whole-night audio stay.") },
             confirmButton = { TextButton({ confirm = false; onDeleteClips() }) { Text("Delete clips") } },
             dismissButton = { TextButton({ confirm = false }) { Text("Cancel") } },
         )
@@ -797,5 +816,49 @@ private fun MorningSummary(text: String, askForNotes: Boolean, onAddNotes: () ->
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NightAudioCard(session: Session, audio: NightAudioPlayer, bytes: Long?, onDelete: (() -> Unit)?) {
+    var confirm by remember(session.id) { mutableStateOf(false) }
+    val at = clock(session.startMs + audio.positionMs)
+    Card {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton({ audio.toggle() }) {
+                    Icon(
+                        if (audio.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        if (audio.playing) "Pause the night's audio" else "Play the night from $at",
+                        tint = Palette.Moon,
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+                Column(Modifier.weight(1f)) {
+                    SectionTitle("Listen to the night")
+                    Text(
+                        if (audio.failed) "This part can't be played." else if (audio.playing) "Playing $at" else "From $at · tap the timeline to choose",
+                        color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (bytes != null && bytes > 0) Text(NightStats.formatBytes(bytes), color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
+            }
+            if (onDelete != null) {
+                TextButton({ confirm = true }, Modifier.heightIn(min = 48.dp)) {
+                    Icon(Icons.Filled.Delete, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Delete audio, keep the night")
+                }
+            }
+        }
+    }
+    if (confirm && onDelete != null) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("Delete this night's audio?") },
+            text = { Text("The whole-night recording is removed to free space. The timeline, score, notes and ten-second clips stay.") },
+            confirmButton = { TextButton({ confirm = false; onDelete() }) { Text("Delete audio") } },
+            dismissButton = { TextButton({ confirm = false }) { Text("Cancel") } },
+        )
     }
 }

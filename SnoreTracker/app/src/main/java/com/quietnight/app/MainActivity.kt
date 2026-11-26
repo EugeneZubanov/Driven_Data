@@ -91,6 +91,7 @@ private fun AppRoot(app: QuietNightApp) {
     }
     var deletedNotice by remember { mutableStateOf<com.quietnight.app.data.Session?>(null) }
     val loaded by app.repository.loaded.collectAsStateWithLifecycle()
+    var audioVersion by remember { mutableIntStateOf(0) } // bumped when a night's audio is deleted
     val is24 = com.quietnight.app.ui.rememberIs24Hour()
     androidx.compose.runtime.SideEffect { com.quietnight.app.ui.ClockFormat.is24 = is24 } // clock() follows the device setting
     var freshId by rememberSaveable { mutableStateOf<String?>(null) } // just recorded: show the morning summary
@@ -165,6 +166,13 @@ private fun AppRoot(app: QuietNightApp) {
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
                 tab == 1 && detail != null -> {
+                    // Whole-night audio index and size, read off the main thread.
+                    val nightAudio by androidx.compose.runtime.produceState(Pair(emptyList<com.quietnight.app.audio.AudioSegment>(), 0L), detail.id, audioVersion) {
+                        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            val dir = app.repository.clipDir(detail.id)
+                            com.quietnight.app.audio.SegmentIndex.read(dir) to app.repository.audioBytes(detail.id)
+                        }
+                    }
                     val index = sessions.indexOf(detail) // newest first
                     SessionDetailScreen(
                         session = detail,
@@ -180,6 +188,10 @@ private fun AppRoot(app: QuietNightApp) {
                         onDismissSummary = { freshId = null },
                         clipBytes = remember(detail) { app.repository.clipBytes(detail.id) },
                         onDeleteClips = { app.repository.deleteClips(detail.id) },
+                        audioSegments = nightAudio.first,
+                        audioDir = app.repository.clipDir(detail.id),
+                        audioBytes = nightAudio.second,
+                        onDeleteAudio = { app.repository.deleteNightAudio(detail.id); audioVersion++ },
                         recordingInProgress = detail.id == rec.activeSessionId,
                     )
                 }

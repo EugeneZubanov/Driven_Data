@@ -12,6 +12,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import com.quietnight.app.data.NightStats
 import com.quietnight.app.ui.hourLabel
 import org.junit.Assert.assertTrue
@@ -83,6 +85,23 @@ class AppFlowTest {
         waitForText("Whole night")
         compose.onNodeWithText("Whole night").performClick()
         compose.waitUntil(timeout) { compose.onAllNodesWithText("Whole night").fetchSemanticsNodes().isEmpty() }
+
+        // 5b. Mark a snoring stretch as not snoring with touch and hold, then undo it.
+        val night = app.repository.sessions.value.first { it.id == newest.id }
+        val before = night.score
+        val bucket = night.levels.indices.first { night.effectiveLevel(it) >= 2 }
+        val frac = bucket * night.bucketSec * 1000f / (night.endMs - night.startMs)
+        val chart = compose.onNode(hasContentDescription("Timeline from", substring = true))
+        chart.performScrollTo().performTouchInput { longClick(androidx.compose.ui.geometry.Offset(width * frac + 2f, height * 0.75f)) }
+        waitForText("Not snoring")
+        compose.onNode(hasText("Not snoring") and hasClickAction()).performClick()
+        waitForText("Undo last")
+        compose.waitUntil(timeout) { app.repository.sessions.value.first { it.id == newest.id }.notSnoring.size == 1 }
+        assertTrue(app.repository.sessions.value.first { it.id == newest.id }.score < before)
+        compose.onNodeWithText("Undo last").performClick()
+        compose.waitUntil(timeout) { app.repository.sessions.value.first { it.id == newest.id }.notSnoring.isEmpty() }
+        assertTrue(app.repository.sessions.value.first { it.id == newest.id }.score == before)
+        compose.waitUntil(timeout) { compose.onAllNodesWithText("Undo last").fetchSemanticsNodes().isEmpty() }
 
         // 6. Back to the list.
         compose.onNodeWithContentDescription("Back").performClick()
