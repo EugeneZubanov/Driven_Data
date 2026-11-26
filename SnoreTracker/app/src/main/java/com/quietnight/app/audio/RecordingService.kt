@@ -218,7 +218,7 @@ class RecordingService : Service() {
             if (!testRun && NightAudioPref.state(this).value == true) {
                 if (!RecordingEnv.audioSupported()) audioNote = AUDIO_FAILED
                 else if (RecordingEnv.freeBytes(this) >= NightAudioWriter.MIN_FREE_BYTES) {
-                    audioWriter = AsyncAudioSink(NightAudioWriter(app.repository.clipDir(id), rate, RecordingEnv.encoder))
+                    audioWriter = RecordingEnv.audioSink(NightAudioWriter(app.repository.clipDir(id), rate, RecordingEnv.encoder))
                 } else audioNote = AUDIO_LOW_STORAGE
             }
             starting = false

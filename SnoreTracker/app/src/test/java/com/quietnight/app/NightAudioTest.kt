@@ -197,7 +197,7 @@ class NightAudioTest {
     }
 
     @Test fun asyncSinkFinishesTheLastSegmentOnClose() {
-        val sink = com.quietnight.app.audio.AsyncAudioSink(NightAudioWriter(dir, rate, { f, _ -> FakeEncoder(f) }, segmentMs = 60_000))
+        val sink = com.quietnight.app.audio.AsyncAudioSink(NightAudioWriter(dir, rate, { f, _ -> FakeEncoder(f) }, segmentMs = 60_000), capacity = 1000)
         var t = 0L
         while (t < 90_000) {
             sink.write(buf, buf.size, t); t += 100

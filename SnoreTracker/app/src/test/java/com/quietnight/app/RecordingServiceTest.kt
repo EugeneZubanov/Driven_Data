@@ -96,6 +96,9 @@ class RecordingServiceTest {
         // Simulated time flies, but slowly enough for the test thread to step in.
         RecordingEnv.sleep = { clockMs.addAndGet(it); Thread.sleep(1) }
         RecordingEnv.battery = { battery }
+        // Simulated time runs ~100x faster than real time, which would overflow the encoder
+        // queue; the async sink has its own tests in NightAudioTest.
+        RecordingEnv.audioSink = { it }
         RecordingService.clearFinished()
         RecordingService.clearNotice()
         controller = Robolectric.buildService(RecordingService::class.java, Intent(app, RecordingService::class.java)).create()

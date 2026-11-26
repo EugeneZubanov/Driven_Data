@@ -30,12 +30,15 @@ object RecordingEnv {
     @Volatile var battery: (Context) -> Pair<Int?, Boolean> = RecordingService::readBattery
     @Volatile var encoder: EncoderFactory = EncoderFactory { f, _ -> AacSegmentEncoder(f, AacSupport.find() ?: error("no AAC encoder")) }
     @Volatile var freeBytes: (Context) -> Long = ::freeSpace
+    /** Wraps the full-audio writer; tests running simulated time faster than real time use it directly. */
+    @Volatile var audioSink: (AudioSink) -> AudioSink = { AsyncAudioSink(it) }
     /** Whether this phone has an encoder for full-night audio. */
     @Volatile var audioSupported: () -> Boolean = { AacSupport.find() != null }
 
     fun reset() {
         encoder = EncoderFactory { f, _ -> AacSegmentEncoder(f, AacSupport.find() ?: error("no AAC encoder")) }
         freeBytes = ::freeSpace
+        audioSink = { AsyncAudioSink(it) }
         audioSupported = { AacSupport.find() != null }
         openMic = ::openAudioRecord
         elapsedMs = SystemClock::elapsedRealtime
