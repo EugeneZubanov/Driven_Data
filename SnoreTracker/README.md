@@ -54,11 +54,22 @@ the repo so that every build can update an installed copy without losing data.
 - The weight log (a separate small file in app storage) is included in the backup; on restore,
   days already logged on the phone are kept. Older backups without it restore fine.
 
+## Report and widget
+
+- **30-night report** (Settings → Your data): a one-page PDF on a white background for printing or
+  sending to someone, saved where you choose and then shareable from the app. It has the date range,
+  nights recorded, average score, the nightly score chart, time snoring by level, the
+  with/without table (same minimum-nights rule) and weight if logged, and states that it is a
+  sound-based estimate, not a diagnosis.
+- **Home-screen widget**: last night's score and time snoring; tap to open the app. It refreshes
+  when a night is saved and once a day.
+
 ## Bedtime reminder
 
 An optional daily notification at a time you choose. It uses an inexact alarm (no exact-alarm
 permission), so it may come a few minutes late, and is re-armed after a reboot, an app update or a
 clock/time-zone change. On Android 13+ turning it on asks for the notification permission.
+Tapping the notification opens the Record tab.
 
 ## How detection works
 
