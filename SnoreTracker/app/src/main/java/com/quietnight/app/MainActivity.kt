@@ -44,6 +44,7 @@ import com.quietnight.app.ui.ResultsListScreen
 import com.quietnight.app.ui.SessionDetailScreen
 import com.quietnight.app.ui.SettingsScreen
 import com.quietnight.app.ui.TrendsScreen
+import com.quietnight.app.ui.rememberDataActions
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -139,8 +140,10 @@ private fun AppRoot(app: QuietNightApp) {
                     onOpenSession = { tab = 1; detailId = it },
                 )
                 tab == 1 -> ResultsListScreen(sessions) { detailId = it }
-                tab == 2 -> TrendsScreen(sessions)
-                else -> SettingsScreen(
+                tab == 2 -> TrendsScreen(sessions, onOpenNight = { tab = 1; detailId = it })
+                else -> {
+                    val data = rememberDataActions(app)
+                    SettingsScreen(
                     prefs = prefs,
                     hasDemo = sessions.any { it.demo },
                     hasSessions = sessions.isNotEmpty(),
@@ -148,7 +151,12 @@ private fun AppRoot(app: QuietNightApp) {
                     onAddDemo = { DemoData.generate(System.currentTimeMillis()).forEach(app.repository::save) },
                     onRemoveDemo = { app.repository.deleteWhere { it.demo } },
                     onDeleteAll = { app.repository.deleteWhere { true } },
+                    onBackup = data.onBackup,
+                    onRestore = data.onRestore,
+                    onExportCsv = data.onExportCsv,
+                    dataMessage = data.message,
                 )
+                }
             }
         }
     }

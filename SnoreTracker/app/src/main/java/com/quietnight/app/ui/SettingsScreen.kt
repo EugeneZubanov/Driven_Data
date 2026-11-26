@@ -2,6 +2,8 @@ package com.quietnight.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +38,10 @@ fun SettingsScreen(
     onAddDemo: () -> Unit,
     onRemoveDemo: () -> Unit,
     onDeleteAll: () -> Unit,
+    onBackup: (() -> Unit)? = null,
+    onRestore: (() -> Unit)? = null,
+    onExportCsv: (() -> Unit)? = null,
+    dataMessage: String? = null,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
@@ -87,6 +93,11 @@ fun SettingsScreen(
             }
         }
 
+        if (onBackup != null || onRestore != null || onExportCsv != null) {
+            Spacer(Modifier.height(12.dp))
+            DataCard(hasSessions, onBackup, onRestore, onExportCsv, dataMessage)
+        }
+
         Spacer(Modifier.height(12.dp))
         Card {
             Column {
@@ -118,5 +129,37 @@ fun SettingsScreen(
             confirmButton = { TextButton({ confirmDelete = false; onDeleteAll() }) { Text("Delete everything") } },
             dismissButton = { TextButton({ confirmDelete = false }) { Text("Cancel") } },
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DataCard(
+    hasSessions: Boolean,
+    onBackup: (() -> Unit)?,
+    onRestore: (() -> Unit)?,
+    onExportCsv: (() -> Unit)?,
+    message: String?,
+) {
+    Card {
+        Column {
+            SectionTitle("Your data")
+            Text(
+                "Save a backup file of every night and its clips wherever you choose, and restore it on this " +
+                    "or another phone. Restoring adds missing nights and keeps the ones already here. " +
+                    "The spreadsheet file has one row per night. Sample nights are left out.",
+                color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (onBackup != null) OutlinedButton(onBackup, enabled = hasSessions) { Text("Back up") }
+                if (onRestore != null) OutlinedButton(onRestore) { Text("Restore") }
+                if (onExportCsv != null) OutlinedButton(onExportCsv, enabled = hasSessions) { Text("Export CSV") }
+            }
+            if (message != null) {
+                Spacer(Modifier.height(6.dp))
+                Text(message, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
     }
 }

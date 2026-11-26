@@ -9,6 +9,11 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
+import com.quietnight.app.ui.NightCalendar
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.quietnight.app.audio.RecState
 import com.quietnight.app.data.DemoData
@@ -71,4 +76,26 @@ class ScreenshotTest {
     }
 
     @Test fun settings() = shot("settings") { SettingsScreen(Prefs(), false, true, {}, {}, {}, {}) }
+
+    @Test fun settingsData() {
+        shot("settings-data") { SettingsScreen(Prefs(), false, true, {}, {}, {}, {}, {}, {}, {}, "Added 12 nights. 3 already here.") }
+        compose.onNodeWithText("Your data").performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/settings-data.png")
+    }
+
+    /** The Trends screen is long; capture it whole at a tall size so every section can be checked. */
+    @Test @Config(qualifiers = "w411dp-h3200dp-xhdpi")
+    fun trendsFull() = shot("trends-full") { TrendsScreen(sessions) }
+
+    @Test fun trendsOneNight() = shot("trends-one-night") { TrendsScreen(sessions.take(1)) }
+
+    @Test fun trendsWeeks() {
+        shot("trends-weeks") { TrendsScreen(sessions) }
+        compose.onNodeWithText("Weeks").performClick()
+        compose.onRoot().captureRoboImage("build/shots/trends-weeks.png")
+    }
+
+    @Test fun calendar() = shot("calendar") {
+        Column(Modifier.padding(20.dp)) { NightCalendar(sessions, {}, todayMs = now) }
+    }
 }
