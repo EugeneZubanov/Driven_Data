@@ -298,6 +298,7 @@ class RecordingService : Service() {
             // Time at the end with no audio still belongs to the night.
             val tail = offsetNow() - accountedMs
             if (gaps.inGap && tail > 0) recorder.skip(tail)
+            recorder.finish() // decide clips for the last buckets
             val session = snapshot()
             gaps.end(offsetNow())
             if (session.durationSec >= MIN_SESSION_SEC) {
@@ -311,6 +312,7 @@ class RecordingService : Service() {
             problem = e.message ?: "Recording failed."
             // Keep whatever was heard before the failure.
             if (recorder != null) runCatching {
+                recorder.finish()
                 val s = snapshot()
                 if (s.durationSec >= MIN_SESSION_SEC) { app.repository.save(s); finishedId = id }
             }

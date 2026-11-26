@@ -109,8 +109,11 @@ private fun AppRoot(app: QuietNightApp) {
         if (detail != null) detailId = null else tab = 0
     }
 
-    if (!prefs.introSeen || showIntro) {
-        IntroScreen(onDone = { showIntro = false; app.settings.update { it.copy(introSeen = true) } })
+    // Never cover a recording in progress (e.g. opened from its notification) with the first-run guide.
+    if ((!prefs.introSeen && !rec.recording) || showIntro) {
+        val finishIntro = { showIntro = false; app.settings.update { it.copy(introSeen = true) } }
+        BackHandler(enabled = showIntro) { finishIntro() }
+        IntroScreen(onDone = finishIntro)
         return
     }
 

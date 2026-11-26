@@ -9,8 +9,21 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/** One confirmed snore: a low-pitched burst that repeats at a breathing rhythm. */
-data class SnoreEvent(val startMs: Long, val durationMs: Long, val dbAboveFloor: Float)
+/**
+ * One confirmed snore: a low-pitched burst that repeats at a breathing rhythm.
+ *
+ * [dbAboveFloor] is the peak loudness above the night's quiet baseline: the lowest noise floor
+ * that held for a whole minute so far. A fan switched on later in the night therefore does not
+ * make snoring over it look milder. [dbAboveLocalFloor] is relative to the floor at that moment.
+ * [confidence] (0–1) is a rough indication of how snore-like the burst was; it is not calibrated.
+ */
+data class SnoreEvent(
+    val startMs: Long,
+    val durationMs: Long,
+    val dbAboveFloor: Float,
+    val dbAboveLocalFloor: Float = dbAboveFloor,
+    val confidence: Float = 1f,
+)
 
 /**
  * Streaming snore detector. Pure Kotlin so it can be unit-tested off-device.
@@ -72,6 +85,10 @@ class SnoreDetector(
     private var blockFrames = 0
     private var blockIndex = 0
     private var floorDb = Float.NaN
+    // Quiet baseline for levels: the lowest per-minute maximum of the floor seen so far.
+    private var baselineDb = Float.POSITIVE_INFINITY
+    private var minuteMaxFloor = Float.NEGATIVE_INFINITY
+    private var minuteFrames = 0
 
     /** Loudness of the most recent frame relative to the noise floor, for the live meter. */
     @Volatile
@@ -82,6 +99,7 @@ class SnoreDetector(
     private var burstStart = -1L
     private var burstLastActive = -1L
     private var burstPeak = 0f
+    private var burstPeakDb = 0f
     private var burstActiveFrames = 0
     private var burstLowSum = 0f
     private var burstRoughSum = 0f
@@ -93,6 +111,8 @@ class SnoreDetector(
     private val candStart = LongArray(RING)
     private val candDur = LongArray(RING)
     private val candPeak = FloatArray(RING)
+    private val candPeakDb = FloatArray(RING)
+    private val candConf = FloatArray(RING)
     private val candReported = BooleanArray(RING)
     private var candCount = 0 // total ever added; slot = index % RING
 
@@ -154,6 +174,7 @@ class SnoreDetector(
             if (burstStart < 0) {
                 burstStart = nowMs
                 burstPeak = above
+                burstPeakDb = db
                 burstActiveFrames = 0
                 burstLowSum = 0f
                 burstRoughSum = 0f
@@ -162,6 +183,7 @@ class SnoreDetector(
                 inDip = false
             } else {
                 burstPeak = max(burstPeak, above)
+                burstPeakDb = max(burstPeakDb, db)
             }
             burstActiveFrames++
             burstLowSum += if (clipping) max(lowRatio, BURST_LOW_RATIO) else lowRatio
@@ -205,7 +227,14 @@ class SnoreDetector(
             target < floorDb -> floorDb + (target - floorDb) * 0.5f
             else -> target
         }
+        minuteMaxFloor = max(minuteMaxFloor, floorDb)
+        if (++minuteFrames == 1200) {
+            baselineDb = minOf(baselineDb, max(minuteMaxFloor, MIN_FLOOR_DB))
+            minuteMaxFloor = Float.NEGATIVE_INFINITY
+            minuteFrames = 0
+        }
     }
+
 
     private fun closeBurst(startMs: Long, durationMs: Long, peak: Float) {
         if (durationMs < MIN_BURST_MS || durationMs > MAX_BURST_MS) return
@@ -219,17 +248,27 @@ class SnoreDetector(
         // corpus speech scores 0.02–0.05, pulsed snores ~0.3, hiss-like snores ~0.1, and snores
         // overlapped by talking 0.13–0.26. Creaky voice may well be rough too; unverified.
         if (burstDips >= 1 && dipsPerSec >= 1.5f && rough < ROUGH_SNORE) return
-        addCandidate(startMs, durationMs, peak)
+        // Chopped up at a syllable rate (~3+ per second) is talking even if the voice is creaky.
+        if (burstDips >= 3 && dipsPerSec >= 2.5f) return
+        // A rough 0–1 score from how clearly the burst shows the snore traits; not calibrated.
+        var conf = 0.4f
+        if (rough >= 0.15f) conf += 0.2f
+        if (burstDips == 0) conf += 0.2f
+        if (peak >= thresholdDb + 6f) conf += 0.2f
+        addCandidate(startMs, durationMs, peak, burstPeakDb, conf)
     }
 
-    private fun addCandidate(startMs: Long, durationMs: Long, peak: Float) {
+    private fun addCandidate(startMs: Long, durationMs: Long, peak: Float, peakDb: Float, conf: Float) {
         val slot = candCount % RING
         candStart[slot] = startMs
         candDur[slot] = durationMs
         candPeak[slot] = peak
+        candPeakDb[slot] = peakDb
+        candConf[slot] = conf
         candReported[slot] = false
         candCount++
 
+        if (mechanical(slot)) return
         // Already snoring: report a candidate that falls on the rhythm (or one breath later).
         if (periodMs > 0 && lastSnoreStart >= 0) {
             val gap = startMs - lastSnoreStart
@@ -268,10 +307,49 @@ class SnoreDetector(
         }
     }
 
+    /**
+     * Breathing is never clockwork. If this burst and two earlier ones repeat at intervals equal to
+     * within one frame, with durations within 60 ms and levels within 1 dB, it is a
+     * machine: a ringer, an alarm, an appliance cycling. Checks every pair in the ring, so a
+     * ringer whose rings split into several bursts is caught too.
+     */
+    private fun mechanical(slot: Int): Boolean {
+        val n = min(candCount, RING)
+        val t = candStart[slot]
+        for (xi in 1 until n) {
+            val x = (candCount - 1 - xi) % RING
+            val i2 = t - candStart[x]
+            if (i2 < 500 || !similar(slot, x)) continue
+            for (yi in xi + 1 until n) {
+                val y = (candCount - 1 - yi) % RING
+                val i1 = candStart[x] - candStart[y]
+                if (abs(i1 - i2) <= 60 && similar(slot, y)) return true
+            }
+        }
+        return false
+    }
+
+    private fun similar(a: Int, b: Int) =
+        abs(candDur[a] - candDur[b]) <= 60 && abs(candPeak[a] - candPeak[b]) <= 1f
+
     private fun report(slot: Int) {
         if (candReported[slot]) return
         candReported[slot] = true
-        onEvent(SnoreEvent(candStart[slot], candDur[slot], candPeak[slot]))
+        val base = max(min(baselineDb, floorDb), MIN_FLOOR_DB)
+        val aboveBase = max(candPeakDb[slot] - base, candPeak[slot])
+        onEvent(SnoreEvent(candStart[slot], candDur[slot], aboveBase, candPeak[slot], candConf[slot]))
+    }
+
+    /**
+     * Forgets any burst in progress and the breathing rhythm, e.g. after a stretch without audio:
+     * intervals measured across the gap would be meaningless. Unconfirmed bursts are dropped, so
+     * every event reported afterwards starts after this call. The noise floor is kept.
+     */
+    fun interrupt() {
+        burstStart = -1
+        candCount = 0
+        periodMs = 0
+        lastSnoreStart = -1
     }
 
     private fun expireRhythm(nowMs: Long) {

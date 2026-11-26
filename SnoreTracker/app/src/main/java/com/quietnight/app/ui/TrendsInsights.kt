@@ -36,6 +36,7 @@ import com.quietnight.app.data.Direction
 import com.quietnight.app.data.HourSlot
 import com.quietnight.app.data.Insights
 import com.quietnight.app.data.Level
+import com.quietnight.app.data.ReminderTime
 import com.quietnight.app.data.Session
 import com.quietnight.app.data.TagEffect
 import com.quietnight.app.data.Tags
@@ -73,6 +74,7 @@ fun HourlyCard(sessions: List<Session>) {
     val nights = minOf(sessions.size, HOURLY_NIGHTS)
     // Hours recorded on fewer than a quarter of the nights are too thin to compare; draw them faded.
     val thin = maxOf(3600L, nights * 900L)
+    val is24 = rememberIs24Hour()
     val peak = slots.filter { it.recordedSec >= thin }.maxByOrNull { it.totalShare }
     Card {
         Column {
@@ -82,13 +84,13 @@ fun HourlyCard(sessions: List<Session>) {
                 color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(12.dp))
-            HourlyChart(slots, thin, peak?.hour)
+            HourlyChart(slots, thin, peak?.hour, is24)
             Spacer(Modifier.height(8.dp))
             SnoreLevelKey()
             if (peak != null && peak.totalShare > 0f) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Most snoring between ${hourLabel(peak.hour)} and ${hourLabel((peak.hour + 1) % 24)} " +
+                    "Most snoring between ${ReminderTime.label(peak.hour * 60, is24)} and ${ReminderTime.label((peak.hour + 1) % 24 * 60, is24)} " +
                         "(${(peak.totalShare * 100).roundToInt()}% of that hour).",
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -97,13 +99,9 @@ fun HourlyCard(sessions: List<Session>) {
     }
 }
 
-private fun hourLabel(h: Int): String {
-    val c = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, 0) }
-    return SimpleDateFormat("HH:mm", Locale.getDefault()).format(c.time)
-}
 
 @Composable
-private fun HourlyChart(slots: List<HourSlot>, thin: Long, peakHour: Int?) {
+private fun HourlyChart(slots: List<HourSlot>, thin: Long, peakHour: Int?, is24: Boolean) {
     val measurer = rememberTextMeasurer()
     val axis = TextStyle(color = Palette.Muted, fontSize = 11.sp)
     val maxShare = max(slots.maxOf { it.totalShare }, 0.05f)
@@ -139,7 +137,7 @@ private fun HourlyChart(slots: List<HourSlot>, thin: Long, peakHour: Int?) {
                 acc += v
             }
             if (i % every == 0) {
-                val l = measurer.measure(String.format(Locale.getDefault(), "%02d", s.hour), axis.copy(color = if (s.hour == peakHour) Palette.Text else Palette.Muted))
+                val l = measurer.measure(ReminderTime.hourLabel(s.hour, is24), axis.copy(color = if (s.hour == peakHour) Palette.Text else Palette.Muted))
                 val lx = (left + slot * i + slot / 2 - l.size.width / 2).coerceIn(left, size.width - l.size.width)
                 drawText(l, topLeft = Offset(lx, size.height - labelH + 4.dp.toPx()))
             }

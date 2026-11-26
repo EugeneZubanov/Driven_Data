@@ -50,8 +50,9 @@ the repo so that every build can update an installed copy without losing data.
   It ignores unexpected paths, caps file sizes, checks every night and saves nothing if the file is
   damaged. It keeps running, and its result stays shown, if you leave Settings.
 - **Export CSV** writes one row per night: date, start, end, duration, minutes mild/loud/heavy,
-  score and tags.
-- The weight log is a separate small file in app storage and is not part of the backup yet.
+  score, tags, and weight_kg when a weight was logged for that date.
+- The weight log (a separate small file in app storage) is included in the backup; on restore,
+  days already logged on the phone are kept. Older backups without it restore fine.
 
 ## Bedtime reminder
 
