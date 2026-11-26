@@ -21,7 +21,7 @@ class DetectorCorpusTest {
      */
     class Scenario(
         val name: String, val snoring: Boolean, val gain: Double = 1.0, val gated: Boolean = true,
-        val maxFalseSec: Double = 0.0, val build: () -> Scene,
+        val maxFalseSec: Double = 0.0, val build: (rate: Int) -> Scene,
     )
 
     /** [levels]: by dbAboveFloor (night baseline); [localLevels]: by the floor at that moment, as before. */
@@ -30,51 +30,51 @@ class DetectorCorpusTest {
     }
 
     private val snoreScenarios = listOf(
-        Scenario("snoring, quiet room", true) { Scene(180.0, 11).roomNoise().snoring(5.0, 180.0, 350.0) },
-        Scenario("snoring, period 3->6 s", true) { Scene(240.0, 12).roomNoise().snoring(5.0, 240.0, 350.0, 3.0, 6.0) },
-        Scenario("snoring, slow pulses 20/s", true) { Scene(180.0, 13).roomNoise().snoring(5.0, 180.0, 350.0, 4.5, pulseHz = 20.0) },
-        Scenario("snoring, fast pulses 60/s", true) { Scene(180.0, 14).roomNoise().snoring(5.0, 180.0, 350.0, 3.5, pulseHz = 60.0) },
-        Scenario("snoring, noise-like", true) { Scene(180.0, 15).roomNoise().snoring(5.0, 180.0, 350.0, noisy = true) },
-        Scenario("irregular breathing (+-25%)", true) { Scene(240.0, 24).roomNoise().snoring(5.0, 240.0, 350.0, periodJitter = 0.25) },
-        Scenario("short snores 0.4-0.7 s", true) { Scene(180.0, 25).roomNoise().snoring(5.0, 180.0, 350.0, 3.5, minDur = 0.4, maxDur = 0.7) },
-        Scenario("near-threshold snoring ~9 dB", true) { Scene(180.0, 26).roomNoise().snoring(5.0, 180.0, 100.0, jitterDb = 1.5) },
-        Scenario("quiet snoring ~11 dB", true) { Scene(180.0, 16).roomNoise().snoring(5.0, 180.0, 125.0, jitterDb = 1.5) },
-        Scenario("loud snoring", true) { Scene(180.0, 17).roomNoise().snoring(5.0, 180.0, 3000.0) },
-        Scenario("clipping snoring", true) { Scene(180.0, 18).roomNoise().snoring(5.0, 180.0, 40000.0) },
-        Scenario("very quiet phone (1/40)", true, gain = 1.0 / 40) { Scene(180.0, 19).roomNoise().snoring(5.0, 180.0, 350.0) },
-        Scenario("snoring over fan", true) { Scene(180.0, 20).roomNoise().fan(400.0).snoring(5.0, 180.0, 1600.0) },
-        Scenario("snoring over rain", true) { Scene(180.0, 21).roomNoise().rain(300.0).snoring(5.0, 180.0, 1400.0) },
-        Scenario("fan turns on mid-snoring", true) { Scene(240.0, 22).roomNoise().fan(400.0, 100.0).snoring(5.0, 240.0, 1600.0) },
-        Scenario("two snorers interleaved", true) { Scene(240.0, 27).roomNoise().snoring(5.0, 240.0, 450.0, 4.0).snoring(7.0, 240.0, 250.0, 5.3, pulseHz = 28.0) },
-        Scenario("snoring + partner talking", true) { Scene(240.0, 23).roomNoise().snoring(5.0, 240.0, 500.0).speech(60.0, 150.0, 400.0, 200.0, 1.0, 6.0) },
+        Scenario("snoring, quiet room", true) { r -> Scene(180.0, 11, r).roomNoise().snoring(5.0, 180.0, 350.0) },
+        Scenario("snoring, period 3->6 s", true) { r -> Scene(240.0, 12, r).roomNoise().snoring(5.0, 240.0, 350.0, 3.0, 6.0) },
+        Scenario("snoring, slow pulses 20/s", true) { r -> Scene(180.0, 13, r).roomNoise().snoring(5.0, 180.0, 350.0, 4.5, pulseHz = 20.0) },
+        Scenario("snoring, fast pulses 60/s", true) { r -> Scene(180.0, 14, r).roomNoise().snoring(5.0, 180.0, 350.0, 3.5, pulseHz = 60.0) },
+        Scenario("snoring, noise-like", true) { r -> Scene(180.0, 15, r).roomNoise().snoring(5.0, 180.0, 350.0, noisy = true) },
+        Scenario("irregular breathing (+-25%)", true) { r -> Scene(240.0, 24, r).roomNoise().snoring(5.0, 240.0, 350.0, periodJitter = 0.25) },
+        Scenario("short snores 0.4-0.7 s", true) { r -> Scene(180.0, 25, r).roomNoise().snoring(5.0, 180.0, 350.0, 3.5, minDur = 0.4, maxDur = 0.7) },
+        Scenario("near-threshold snoring ~9 dB", true) { r -> Scene(180.0, 26, r).roomNoise().snoring(5.0, 180.0, 100.0, jitterDb = 1.5) },
+        Scenario("quiet snoring ~11 dB", true) { r -> Scene(180.0, 16, r).roomNoise().snoring(5.0, 180.0, 125.0, jitterDb = 1.5) },
+        Scenario("loud snoring", true) { r -> Scene(180.0, 17, r).roomNoise().snoring(5.0, 180.0, 3000.0) },
+        Scenario("clipping snoring", true) { r -> Scene(180.0, 18, r).roomNoise().snoring(5.0, 180.0, 40000.0) },
+        Scenario("very quiet phone (1/40)", true, gain = 1.0 / 40) { r -> Scene(180.0, 19, r).roomNoise().snoring(5.0, 180.0, 350.0) },
+        Scenario("snoring over fan", true) { r -> Scene(180.0, 20, r).roomNoise().fan(400.0).snoring(5.0, 180.0, 1600.0) },
+        Scenario("snoring over rain", true) { r -> Scene(180.0, 21, r).roomNoise().rain(300.0).snoring(5.0, 180.0, 1400.0) },
+        Scenario("fan turns on mid-snoring", true) { r -> Scene(240.0, 22, r).roomNoise().fan(400.0, 100.0).snoring(5.0, 240.0, 1600.0) },
+        Scenario("two snorers interleaved", true) { r -> Scene(240.0, 27, r).roomNoise().snoring(5.0, 240.0, 450.0, 4.0).snoring(7.0, 240.0, 250.0, 5.3, pulseHz = 28.0) },
+        Scenario("snoring + partner talking", true) { r -> Scene(240.0, 23, r).roomNoise().snoring(5.0, 240.0, 500.0).speech(60.0, 150.0, 400.0, 200.0, 1.0, 6.0) },
     )
 
     private val distractors = listOf(
-        Scenario("room noise only", false) { Scene(180.0, 31).roomNoise() },
-        Scenario("monologue (speech)", false) { Scene(240.0, 32).roomNoise().speech(3.0, 240.0, 600.0) },
-        Scenario("partner talking", false) { Scene(240.0, 33).roomNoise().speech(3.0, 240.0, 400.0, 200.0, 1.0, 8.0) },
-        Scenario("TV (speech + music)", false) { Scene(240.0, 34).roomNoise().music(0.0, 240.0, 200.0).speech(3.0, 240.0, 500.0, 140.0) },
-        Scenario("music", false) { Scene(180.0, 35).roomNoise().music(0.0, 180.0, 600.0) },
-        Scenario("traffic rumble", false) { Scene(240.0, 36).roomNoise().traffic(0.0, 240.0, 1500.0) },
-        Scenario("fan on at 60 s, off at 150 s", false) { Scene(240.0, 37).roomNoise().fan(500.0, 60.0, 150.0) },
-        Scenario("coughing fits", false) { Scene(240.0, 38).roomNoise().coughing(0.0, 240.0, 1500.0) },
-        Scenario("bed rustling", false) { Scene(180.0, 39).roomNoise().rustling(0.0, 180.0, 600.0) },
-        Scenario("dog barking", false) { Scene(180.0, 40).roomNoise().barking(0.0, 180.0, 1500.0) },
-        Scenario("dog barking, slow (2.5 s)", false) { Scene(180.0, 41).roomNoise().barking(0.0, 180.0, 1500.0, 2.5) },
-        Scenario("ticking clock", false) { Scene(120.0, 42).roomNoise().clock(800.0) },
-        Scenario("phone notifications", false) { Scene(240.0, 43).roomNoise().notifications(0.0, 240.0, 1200.0) },
-        Scenario("rain", false) { Scene(180.0, 44).roomNoise().rain(400.0) },
-        Scenario("heavy breathing, no snore", false) { Scene(180.0, 45).roomNoise().breathing(0.0, 180.0, 400.0) },
+        Scenario("room noise only", false) { r -> Scene(180.0, 31, r).roomNoise() },
+        Scenario("monologue (speech)", false) { r -> Scene(240.0, 32, r).roomNoise().speech(3.0, 240.0, 600.0) },
+        Scenario("partner talking", false) { r -> Scene(240.0, 33, r).roomNoise().speech(3.0, 240.0, 400.0, 200.0, 1.0, 8.0) },
+        Scenario("TV (speech + music)", false) { r -> Scene(240.0, 34, r).roomNoise().music(0.0, 240.0, 200.0).speech(3.0, 240.0, 500.0, 140.0) },
+        Scenario("music", false) { r -> Scene(180.0, 35, r).roomNoise().music(0.0, 180.0, 600.0) },
+        Scenario("traffic rumble", false) { r -> Scene(240.0, 36, r).roomNoise().traffic(0.0, 240.0, 1500.0) },
+        Scenario("fan on at 60 s, off at 150 s", false) { r -> Scene(240.0, 37, r).roomNoise().fan(500.0, 60.0, 150.0) },
+        Scenario("coughing fits", false) { r -> Scene(240.0, 38, r).roomNoise().coughing(0.0, 240.0, 1500.0) },
+        Scenario("bed rustling", false) { r -> Scene(180.0, 39, r).roomNoise().rustling(0.0, 180.0, 600.0) },
+        Scenario("dog barking", false) { r -> Scene(180.0, 40, r).roomNoise().barking(0.0, 180.0, 1500.0) },
+        Scenario("dog barking, slow (2.5 s)", false) { r -> Scene(180.0, 41, r).roomNoise().barking(0.0, 180.0, 1500.0, 2.5) },
+        Scenario("ticking clock", false) { r -> Scene(120.0, 42, r).roomNoise().clock(800.0) },
+        Scenario("phone notifications", false) { r -> Scene(240.0, 43, r).roomNoise().notifications(0.0, 240.0, 1200.0) },
+        Scenario("rain", false) { r -> Scene(180.0, 44, r).roomNoise().rain(400.0) },
+        Scenario("heavy breathing, no snore", false) { r -> Scene(180.0, 45, r).roomNoise().breathing(0.0, 180.0, 400.0) },
         // Weak spot: creaky talking is rough and low like a snore; 4 minutes of it still gives ~6 s.
-        Scenario("creaky voice (vocal fry) *", false, maxFalseSec = 10.0) { Scene(240.0, 47).roomNoise().speech(3.0, 240.0, 500.0, 45.0, pulseJitter = 0.2) },
-        Scenario("dual-tone phone ringer x8", false) { Scene(60.0, 46).roomNoise().dualToneRinger(10.0, 8, 1500.0) },
+        Scenario("creaky voice (vocal fry) *", false, maxFalseSec = 10.0) { r -> Scene(240.0, 47, r).roomNoise().speech(3.0, 240.0, 500.0, 45.0, pulseJitter = 0.2) },
+        Scenario("dual-tone phone ringer x8", false) { r -> Scene(60.0, 46, r).roomNoise().dualToneRinger(10.0, 8, 1500.0) },
     )
 
-    private fun run(pcm: ShortArray, threshold: Float, legacy: Boolean): List<SnoreEvent> {
+    private fun run(pcm: ShortArray, threshold: Float, legacy: Boolean, rate: Int = this.rate): List<SnoreEvent> {
         val events = ArrayList<SnoreEvent>()
         val feed: (ShortArray, Int, Int) -> Unit = if (legacy) {
             val d = LegacySnoreDetector(rate, threshold) { events += it }
-            val tmp = ShortArray(1600)
+            val tmp = ShortArray(rate / 10)
             val f: (ShortArray, Int, Int) -> Unit = { a, off, n -> System.arraycopy(a, off, tmp, 0, n); d.feed(tmp, n) }
             f
         } else {
@@ -83,7 +83,8 @@ class DetectorCorpusTest {
             f
         }
         var off = 0
-        while (off < pcm.size) { val n = minOf(1600, pcm.size - off); feed(pcm, off, n); off += n }
+        val chunk = rate / 10 // 100 ms reads, as the service does
+        while (off < pcm.size) { val n = minOf(chunk, pcm.size - off); feed(pcm, off, n); off += n }
         return events
     }
 
@@ -109,7 +110,7 @@ class DetectorCorpusTest {
 
     /** Scores for one scenario: index 0..2 = new detector at [thresholds], 3 = old detector at 8 dB. */
     private fun evaluate(s: Scenario): List<Score> {
-        val scene = s.build()
+        val scene = s.build(rate)
         val pcm = scene.pcm(s.gain)
         return thresholds.map { score(scene, run(pcm, it, legacy = false)) } + score(scene, run(pcm, 8f, legacy = true))
     }
@@ -159,6 +160,40 @@ class DetectorCorpusTest {
             val sc = results.getValue(s.name)
             if (sc.falseSec > s.maxFalseSec) problems += "${s.name}: ${sc.falseSec}s false alarms"
         }
+        assertTrue(problems.joinToString("\n"), problems.isEmpty())
+    }
+
+    /** Problems against the gates for one scenario at normal sensitivity. */
+    private fun gateProblems(s: Scenario, sc: Score): List<String> = when {
+        !s.gated -> emptyList()
+        s.snoring -> listOfNotNull(
+            if (sc.hitRate < 0.8) "${s.name}: hit rate ${sc.hitRate}" else null,
+            if (sc.falseSec > 3.0) "${s.name}: ${sc.falseSec}s false alarms" else null,
+        )
+        else -> listOfNotNull(if (sc.falseSec > s.maxFalseSec) "${s.name}: ${sc.falseSec}s false alarms" else null)
+    }
+
+    /**
+     * Android only guarantees 44.1 kHz capture, so the service may run at 44.1 or 48 kHz. The same
+     * scenes are generated natively at those rates (not resampled) and must pass the same gates.
+     */
+    @Test fun corpusAtCaptureRates() {
+        val out = StringBuilder("Snore detector at other capture rates (8 dB)\n")
+        val problems = ArrayList<String>()
+        for (r in intArrayOf(44100, 48000)) {
+            var hits = 0; var truth = 0; var fa = 0.0
+            for (s in snoreScenarios + distractors) {
+                val scene = s.build(r)
+                val sc = score(scene, run(scene.pcm(s.gain), 8f, legacy = false, rate = r))
+                hits += sc.hits; truth += sc.truth; if (!s.snoring) fa += sc.falseSec
+                problems += gateProblems(s, sc).map { "$r Hz $it" }
+                if (sc.hitRate < 0.95 || sc.falseSec > 0) out.appendLine("  $r Hz %-30s %s".format(s.name, fmt(sc)))
+            }
+            out.appendLine("%d Hz: hit %.1f%%, distractor false alarms %.1fs".format(r, 100.0 * hits / truth, fa))
+        }
+        println(out)
+        File("build/reports").mkdirs()
+        File("build/reports/detector-corpus-rates.txt").writeText(out.toString())
         assertTrue(problems.joinToString("\n"), problems.isEmpty())
     }
 }

@@ -8,7 +8,7 @@ import java.io.File
 /** Stores each night as one JSON file plus a folder of WAV clips. Newest session first. */
 private fun Session.withoutClips() = Session(
     id, startMs, endMs, bucketSec, levels, amps, tags, emptyList(), demo = demo,
-    interruptedAtMs = interruptedAtMs, gaps = gaps, note = note, notSnoring = notSnoring,
+    interruptedAtMs = interruptedAtMs, gaps = gaps, note = note, notSnoring = notSnoring, others = others, conf = conf,
 )
 
 class SessionRepository(private val root: File) {
