@@ -35,6 +35,32 @@ object RecordingPolicy {
     enum class StopReason(val message: String) {
         LOW_BATTERY("Recording stopped because the battery was low. The night so far was saved."),
         MAX_LENGTH("Recording stopped after 12 hours. The night was saved."),
+        TEST_DONE("Test run finished. Have a look at what was heard."),
+        WAKE_TIME("Good morning. Recording stopped at your wake-up time and the night was saved."),
+    }
+
+    /** Length of the optional short test run. */
+    const val TEST_RUN_MS = 5 * 60_000L
+
+    /**
+     * Planned ends: the test run's length ([testRunMs], 0 for a normal night) measured on the
+     * night's own clock, or the wake-up time ([wakeAtMs], 0 for none) on the wall clock.
+     */
+    fun plannedStop(elapsedMs: Long, wallMs: Long, testRunMs: Long, wakeAtMs: Long): StopReason? = when {
+        testRunMs > 0 && elapsedMs >= testRunMs -> StopReason.TEST_DONE
+        wakeAtMs > 0 && wallMs >= wakeAtMs -> StopReason.WAKE_TIME
+        else -> null
+    }
+
+    /**
+     * The next time the clock shows [hour]:[minute] after [nowMs] in [zone]. Done with java.time so a
+     * daylight-saving change in the night still gives the right instant.
+     */
+    fun nextWakeTime(nowMs: Long, hour: Int, minute: Int, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): Long {
+        val now = java.time.Instant.ofEpochMilli(nowMs).atZone(zone)
+        var t = now.toLocalDate().atTime(hour, minute).atZone(zone)
+        if (!t.isAfter(now)) t = now.toLocalDate().plusDays(1).atTime(hour, minute).atZone(zone)
+        return t.toInstant().toEpochMilli()
     }
 
     /** Whether the night should end on its own. [batteryPct] is null when unknown. */
@@ -153,4 +179,22 @@ object NightRecovery {
         is Outcome.Kept -> "Your last recording was cut short at ${clock(o.cutAtMs)}, probably because the phone closed the app. The night up to then was kept."
         is Outcome.Lost -> "Your last recording stopped unexpectedly before anything could be saved."
     }
+}
+
+/**
+ * How the service answers start commands and the end of a night. All on the main thread, so a
+ * Start pressed while the previous night is still saving is queued rather than lost, and a
+ * finishing night never stops the service under a newly started one.
+ */
+object ServiceLifecycle {
+    enum class OnStart { LAUNCH, IGNORE_DUPLICATE, QUEUE_AFTER_CURRENT }
+    enum class OnWorkerEnd { RELAUNCH, STOP_SERVICE }
+
+    fun onStart(workerAlive: Boolean, workerStopping: Boolean): OnStart = when {
+        !workerAlive -> OnStart.LAUNCH
+        workerStopping -> OnStart.QUEUE_AFTER_CURRENT
+        else -> OnStart.IGNORE_DUPLICATE
+    }
+
+    fun onWorkerEnd(startQueued: Boolean): OnWorkerEnd = if (startQueued) OnWorkerEnd.RELAUNCH else OnWorkerEnd.STOP_SERVICE
 }

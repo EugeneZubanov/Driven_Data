@@ -24,6 +24,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.quietnight.app.audio.MicCheck
+import com.quietnight.app.audio.WakeAlarm
+import com.quietnight.app.audio.WakeSetting
+import android.os.Build
 import com.quietnight.app.audio.RecState
 import com.quietnight.app.audio.RecordingPolicy
 import com.quietnight.app.audio.RecordingService
@@ -52,6 +55,16 @@ fun RecordTab(
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) MicCheck.start(context)
     }
+    val wake by WakeAlarm.setting(context).collectAsStateWithLifecycle()
+    val testRunPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (granted.isNotEmpty()) RecordingService.start(context, testRun = true)
+    }
+    val neededToRecord = {
+        buildList {
+            add(Manifest.permission.RECORD_AUDIO)
+            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+        }.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+    }
 
     RecordScreen(
         prefs = prefs,
@@ -74,6 +87,13 @@ fun RecordTab(
                 MicCheck.start(context)
             } else micPermission.launch(Manifest.permission.RECORD_AUDIO)
         },
+        wake = wake ?: WakeSetting(),
+        onWake = { WakeAlarm.update(context, it) },
+        onTestRun = {
+            val needed = neededToRecord()
+            if (needed.isEmpty()) RecordingService.start(context, testRun = true) else testRunPermissions.launch(needed.toTypedArray())
+        },
+        manufacturer = Build.MANUFACTURER ?: "",
         onDimmed = { dim -> context.findActivity()?.window?.let { w -> w.attributes = w.attributes.also { it.screenBrightness = if (dim) 0.01f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } } },
     )
 

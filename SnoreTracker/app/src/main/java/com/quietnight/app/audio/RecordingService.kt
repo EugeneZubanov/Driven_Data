@@ -1,7 +1,6 @@
 package com.quietnight.app.audio
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -12,15 +11,12 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
-import android.media.AudioFormat
-import android.media.AudioManager
-import android.media.AudioRecord
-import android.media.MediaRecorder
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
-import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -50,6 +46,10 @@ data class RecState(
     val notice: String? = null,
     /** The night [notice] is about, if it was kept. */
     val noticeSessionId: String? = null,
+    /** This is a short test run, not a whole night. */
+    val testRun: Boolean = false,
+    /** Wake-up time the night will stop at, or 0. */
+    val wakeAtMs: Long = 0,
 )
 
 /**
@@ -64,13 +64,19 @@ class RecordingService : Service() {
     @Volatile private var stopRequested = false
     @Volatile private var worker: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private val main = Handler(Looper.getMainLooper())
+    /** A Start arrived while the previous night was still saving; run it once that is done. Main thread only. */
+    private var queued: Intent? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            queued = null
             stopRequested = true
             if (worker == null) {
+                // e.g. "Stop and save" tapped after the phone closed the app: keep what was saved.
+                recoverInterrupted(application as QuietNightApp)
                 ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
@@ -90,79 +96,81 @@ class RecordingService : Service() {
             }
             return START_NOT_STICKY
         }
-        if (worker != null) return START_NOT_STICKY
-
-        if (intent == null ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
-        ) {
-            starting = false
-            if (intent != null) _state.value = RecState(error = "Microphone permission is needed to record.")
-            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-            stopSelf()
+        if (intent == null) {
+            // Restarted by the system with no request behind it; there is nothing to record.
+            if (worker == null) { ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE); stopSelf() }
             return START_NOT_STICKY
         }
+        when (ServiceLifecycle.onStart(workerAlive = worker != null, workerStopping = stopRequested)) {
+            ServiceLifecycle.OnStart.LAUNCH -> launch(intent)
+            ServiceLifecycle.OnStart.QUEUE_AFTER_CURRENT -> queued = intent
+            ServiceLifecycle.OnStart.IGNORE_DUPLICATE -> {}
+        }
+        return START_NOT_STICKY
+    }
 
+    private fun launch(intent: Intent) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            starting = false
+            _state.value = RecState(error = "Microphone permission is needed to record.")
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
         recoverInterrupted(application as QuietNightApp)
+        WakeAlarm.silence(this)
 
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "QuietNight:recording")
             .apply { setReferenceCounted(false); acquire(RecordingPolicy.WAKE_LOCK_MS) }
 
+        val testRunMs = intent.getLongExtra(EXTRA_TEST_RUN_MS, 0L)
         stopRequested = false
-        worker = thread(name = "night-recorder") { record() }
-        return START_NOT_STICKY
+        starting = true
+        worker = thread(name = "night-recorder") { record(testRunMs) }
     }
 
-    @SuppressLint("MissingPermission")
-    private fun openMic(): AudioRecord? {
-        val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        // Prefer the raw microphone: automatic gain and noise suppression would hide quiet snoring.
-        val am = getSystemService(AUDIO_SERVICE) as AudioManager
-        val source = if (am.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) == "true")
-            MediaRecorder.AudioSource.UNPROCESSED else MediaRecorder.AudioSource.VOICE_RECOGNITION
-        val audio = try {
-            AudioRecord(source, SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, SAMPLE_RATE * 2))
-        } catch (e: Exception) {
-            return null
+    /** Runs on the main thread once a night's worker has finished and saved. */
+    private fun onWorkerEnd() {
+        worker = null
+        wakeLock?.let { if (it.isHeld) it.release() }
+        val next = queued
+        queued = null
+        when (ServiceLifecycle.onWorkerEnd(startQueued = next != null)) {
+            ServiceLifecycle.OnWorkerEnd.RELAUNCH -> launch(next!!)
+            ServiceLifecycle.OnWorkerEnd.STOP_SERVICE -> {
+                ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
         }
-        if (audio.state != AudioRecord.STATE_INITIALIZED) { audio.release(); return null }
-        try {
-            audio.startRecording()
-        } catch (e: Exception) {
-            audio.release(); return null
-        }
-        if (audio.recordingState != AudioRecord.RECORDSTATE_RECORDING) { audio.release(); return null }
-        return audio
     }
-
-    /** True when the system is feeding this app silence because a call or another app has the microphone. */
-    private fun silencedBySystem(audio: AudioRecord): Boolean =
-        Build.VERSION.SDK_INT >= 29 && runCatching { audio.activeRecordingConfiguration?.isClientSilenced == true }.getOrDefault(false)
-
-    private fun battery(): Pair<Int?, Boolean> = readBattery(this)
 
     private fun sleepUnlessStopped(ms: Long) {
-        val until = SystemClock.elapsedRealtime() + ms
-        while (!stopRequested && SystemClock.elapsedRealtime() < until) Thread.sleep(200)
+        val until = RecordingEnv.elapsedMs() + ms
+        while (!stopRequested && RecordingEnv.elapsedMs() < until) RecordingEnv.sleep(200)
     }
 
-    private fun record() {
+    private fun record(testRunMs: Long) {
         val app = application as QuietNightApp
         val prefs = app.settings.prefs.value
-        val startMs = System.currentTimeMillis()
-        val startElapsed = SystemClock.elapsedRealtime()
+        val startMs = RecordingEnv.wallMs()
+        val startElapsed = RecordingEnv.elapsedMs()
         val id = "s$startMs"
-        val delayMs = prefs.delayMin * 60_000L
-        var audio: AudioRecord? = null
+        val testRun = testRunMs > 0
+        val delayMs = if (testRun) 0L else prefs.delayMin * 60_000L
+        val wakeAtMs = if (testRun) 0L else WakeAlarm.wakeAtFor(this, startMs)
+        var audio: MicInput? = null
         var recorder: NightRecorder? = null
         val gaps = GapTracker()
         var finishedId: String? = null
         var problem: String? = null
-        var notice: String? = null
+        var stopReason: RecordingPolicy.StopReason? = null
         var notified = ""
-        fun offsetNow() = SystemClock.elapsedRealtime() - startElapsed
-        fun snapshot() = recorder!!.snapshot().withRecordingInfo(gaps = gaps.snapshot(offsetNow()))
+        fun offsetNow() = RecordingEnv.elapsedMs() - startElapsed
+        fun snapshot() = recorder!!.snapshot().withRecordingInfo(gaps = gaps.snapshot(offsetNow())).let {
+            if (testRun) it.withEdits(it.tags, TEST_RUN_NOTE) else it
+        }
         fun notifyText(text: String) {
             if (text == notified) return
             notified = text
@@ -172,7 +180,8 @@ class RecordingService : Service() {
         }
         try {
             // A just-finished microphone check may still be letting go of the input; give it a moment.
-            audio = openMic() ?: run { Thread.sleep(600); openMic() } ?: error("Could not open the microphone. Another app may be using it.")
+            audio = RecordingEnv.openMic(this) ?: run { RecordingEnv.sleep(600); RecordingEnv.openMic(this) }
+                ?: error("Could not open the microphone. Another app may be using it.")
             val keepClips = prefs.saveClips && filesDir.usableSpace >= RecordingPolicy.NO_CLIPS_STORAGE_BYTES
             recorder = NightRecorder(
                 id = id,
@@ -183,35 +192,37 @@ class RecordingService : Service() {
                 tags = prefs.selectedTags.sorted(),
                 clipDir = if (keepClips) app.repository.clipDir(id) else null,
             )
-            markRecording(this, id)
+            // Mark as active before writing the marker, so a launch in between never "recovers" a live night.
             active = true
+            markRecording(this, id)
             starting = false
-            _state.value = RecState(recording = true, startMs = startMs, delayMs = delayMs)
+            _state.value = RecState(recording = true, startMs = startMs, delayMs = delayMs, testRun = testRun, wakeAtMs = wakeAtMs)
 
             val buf = ShortArray(SAMPLE_RATE / 10)
-            var lastSave = SystemClock.elapsedRealtime()
-            var lastCheck = 0L
+            var lastSave = RecordingEnv.elapsedMs()
+            var lastCheck = Long.MIN_VALUE / 2
             var silenced = false
             var accountedMs = 0L // audio fed plus time skipped, to keep the timeline on the wall clock
             var failures = 0
             var saved = false
             while (!stopRequested) {
-                val now = SystemClock.elapsedRealtime()
+                val now = RecordingEnv.elapsedMs()
                 if (now - lastCheck >= 2_000) {
                     lastCheck = now
-                    silenced = audio != null && silencedBySystem(audio)
-                    val (pct, charging) = battery()
-                    RecordingPolicy.safetyStop(offsetNow(), pct, charging)?.let { notice = it.message; stopRequested = true }
+                    silenced = audio?.silenced() == true
+                    val (pct, charging) = RecordingEnv.battery(this)
+                    stopReason = RecordingPolicy.safetyStop(offsetNow(), pct, charging)
+                        ?: RecordingPolicy.plannedStop(offsetNow(), RecordingEnv.wallMs(), testRunMs, wakeAtMs)
+                    if (stopReason != null) stopRequested = true
                 }
                 if (stopRequested) break
 
                 var n = 0
                 if (audio != null) {
-                    n = audio.read(buf, 0, buf.size)
+                    n = audio.read(buf, buf.size)
                     if (n < 0) {
                         // Dead or invalidated input (e.g. a call took the microphone). Reopen later.
-                        runCatching { audio.stop() }
-                        runCatching { audio.release() }
+                        audio.close()
                         audio = null
                     }
                 }
@@ -220,10 +231,10 @@ class RecordingService : Service() {
                     _state.value = _state.value.copy(micPaused = true)
                     notifyText("Microphone in use elsewhere. Will carry on when it is free.")
                     sleepUnlessStopped(RecordingPolicy.reopenDelayMs(++failures))
-                    if (!stopRequested) audio = openMic()
+                    if (!stopRequested) audio = RecordingEnv.openMic(this)
                     continue
                 }
-                if (n == 0) { Thread.sleep(20); continue }
+                if (n == 0) { RecordingEnv.sleep(20); continue }
 
                 if (silenced || RecordingPolicy.isDigitalSilence(buf, n)) {
                     // Feeding muted input would drag the noise floor down; count it as a gap instead.
@@ -249,6 +260,7 @@ class RecordingService : Service() {
                 notifyText(
                     when {
                         paused -> "Microphone in use elsewhere. Will carry on when it is free."
+                        testRun -> "Test run: listening for 5 minutes."
                         recorder.listening -> "Listening for snoring."
                         else -> "Listening starts ${clock(startMs + delayMs)}."
                     }
@@ -275,23 +287,22 @@ class RecordingService : Service() {
         } catch (e: Exception) {
             problem = e.message ?: "Recording failed."
             // Keep whatever was heard before the failure.
-            val r = recorder
-            if (r != null) runCatching {
+            if (recorder != null) runCatching {
                 val s = snapshot()
                 if (s.durationSec >= MIN_SESSION_SEC) { app.repository.save(s); finishedId = id }
             }
             if (finishedId == null && app.repository.sessions.value.any { it.id == id }) finishedId = id
         } finally {
-            runCatching { audio?.stop() }
-            runCatching { audio?.release() }
+            // From here on a new Start is queued until this night has finished saving.
+            stopRequested = true
+            runCatching { audio?.close() }
             clearRecordingMark(this)
+            if (stopReason == RecordingPolicy.StopReason.WAKE_TIME) runCatching { WakeAlarm.ring(this) }
+            val notice = stopReason?.takeIf { it != RecordingPolicy.StopReason.TEST_DONE }?.message
             _state.value = RecState(finishedId = finishedId, error = problem, notice = notice, noticeSessionId = notice?.let { finishedId })
             active = false
             starting = false
-            worker = null
-            wakeLock?.let { if (it.isHeld) it.release() }
-            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            main.post { onWorkerEnd() }
         }
     }
 
@@ -331,7 +342,10 @@ class RecordingService : Service() {
     companion object {
         const val SAMPLE_RATE = 16000
         const val MIN_SESSION_SEC = 30
-        private const val ACTION_STOP = "com.quietnight.app.STOP"
+        internal const val ACTION_STOP = "com.quietnight.app.STOP"
+        internal const val EXTRA_TEST_RUN_MS = "testRunMs"
+        /** Note put on a test-run night so it is easy to tell apart. */
+        const val TEST_RUN_NOTE = "Test run"
         private const val CHANNEL_ID = "recording"
         private const val NOTIFICATION_ID = 1
         private const val MARK_PREFS = "recording"
@@ -348,7 +362,7 @@ class RecordingService : Service() {
         /** True while a night is being recorded in this process (the microphone is taken). */
         val isRecording: Boolean get() = active || starting
 
-        fun start(context: Context) {
+        fun start(context: Context, testRun: Boolean = false) {
             if (active || starting) return
             // Checked here as well as in the service: on Android 14+ a microphone service started
             // without the permission crashes the app before it can explain anything.
@@ -360,7 +374,9 @@ class RecordingService : Service() {
             starting = true
             _state.value = RecState()
             try {
-                ContextCompat.startForegroundService(context, Intent(context, RecordingService::class.java))
+                val i = Intent(context, RecordingService::class.java)
+                if (testRun) i.putExtra(EXTRA_TEST_RUN_MS, RecordingPolicy.TEST_RUN_MS)
+                ContextCompat.startForegroundService(context, i)
             } catch (e: Exception) {
                 starting = false
                 _state.value = RecState(error = "Could not start recording. Try again.")

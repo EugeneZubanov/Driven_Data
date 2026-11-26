@@ -47,5 +47,8 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
+        <receiver
+            android:name=".audio.AlarmOffReceiver"
+            android:exported="false" />
     </application>
 </manifest>

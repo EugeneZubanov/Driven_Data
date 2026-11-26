@@ -70,6 +70,11 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import com.quietnight.app.audio.MicCheckState
+import com.quietnight.app.audio.WakeSetting
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TimeInput
+import androidx.compose.material3.rememberTimePickerState
 import kotlinx.coroutines.launch
 
 @Composable
@@ -93,11 +98,18 @@ fun RecordScreen(
     /** Called when the recording view dims or wakes, so the window brightness can follow. */
     onDimmed: (Boolean) -> Unit = {},
     dimAfterMs: Long = 30_000,
+    wake: WakeSetting = WakeSetting(),
+    onWake: (WakeSetting) -> Unit = {},
+    /** Starts a 5-minute recording that opens its result, to check detection before a whole night. */
+    onTestRun: () -> Unit = {},
+    /** Build.MANUFACTURER, for phone-specific battery steps. */
+    manufacturer: String = "",
 ) {
     if (rec.recording) RecordingView(rec, onStop, nowMs, onDimmed, dimAfterMs)
     else IdleView(
         prefs, rec, lastSession, onStart, onPrefs, onOpenSession,
         batteryExempt, onFixBattery, startWarnings, onDismissNotice, mic, onMicCheck,
+        wake, onWake, onTestRun, manufacturer,
     )
 }
 
@@ -116,8 +128,13 @@ private fun IdleView(
     onDismissNotice: () -> Unit,
     mic: MicCheckState,
     onMicCheck: () -> Unit,
+    wake: WakeSetting,
+    onWake: (WakeSetting) -> Unit,
+    onTestRun: () -> Unit,
+    manufacturer: String,
 ) {
     var addKind by remember { mutableStateOf<String?>(null) }
+    var oemHelp by remember { mutableStateOf(false) }
     var warnings by remember { mutableStateOf<List<String>>(emptyList()) }
     val tryStart = {
         val w = startWarnings()
@@ -149,6 +166,7 @@ private fun IdleView(
             "Plug the phone in and leave it face up near your bed.",
             color = Palette.Muted, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center,
         )
+        TextButton(onTestRun) { Text("Try a 5-minute test run") }
         rec.error?.let {
             Spacer(Modifier.height(8.dp))
             Text(it, color = Palette.Heavy, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
@@ -159,10 +177,12 @@ private fun IdleView(
         }
         if (!batteryExempt) {
             Spacer(Modifier.height(16.dp))
-            BatteryCard(onFixBattery)
+            BatteryCard(onFixBattery) { oemHelp = true }
         }
         Spacer(Modifier.height(16.dp))
         MicCheckCard(mic, onMicCheck)
+        Spacer(Modifier.height(12.dp))
+        WakeCard(wake, onWake)
 
         Spacer(Modifier.height(24.dp))
         Card {
@@ -235,6 +255,21 @@ private fun IdleView(
         Spacer(Modifier.height(24.dp))
     }
 
+    if (oemHelp) {
+        val help = OemHelp.stepsFor(manufacturer)
+        AlertDialog(
+            onDismissRequest = { oemHelp = false },
+            title = { Text("Keep it running on ${help.brand}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    help.steps.forEachIndexed { i, step -> Text("${i + 1}. $step", color = Palette.Muted) }
+                }
+            },
+            confirmButton = { TextButton({ oemHelp = false; onFixBattery() }) { Text("Open setting") } },
+            dismissButton = { TextButton({ oemHelp = false }) { Text("Close") } },
+        )
+    }
+
     if (warnings.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { warnings = emptyList() },
@@ -292,7 +327,7 @@ private fun NoticeCard(text: String, onOpen: (() -> Unit)?, onDismiss: () -> Uni
 }
 
 @Composable
-private fun BatteryCard(onFix: () -> Unit) {
+private fun BatteryCard(onFix: () -> Unit, onHelp: () -> Unit) {
     Card {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -307,6 +342,7 @@ private fun BatteryCard(onFix: () -> Unit) {
                 color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onHelp) { Text("Steps for my phone") }
                 TextButton(onFix) { Text("Open setting") }
             }
         }
@@ -416,7 +452,8 @@ private fun AwakeView(rec: RecState, now: Long, elapsed: Int, onStop: () -> Unit
         Icon(Icons.Filled.Bedtime, null, tint = Palette.Moon.copy(alpha = 0.7f), modifier = Modifier.size(36.dp))
         Spacer(Modifier.height(16.dp))
         Text(clock(now), fontSize = 64.sp, fontWeight = FontWeight.Light, color = Palette.Text.copy(alpha = 0.85f))
-        Text("Recording for ${formatDuration(elapsed)}", color = Palette.Muted)
+        Text(if (rec.testRun) "Test run · ${formatDuration(elapsed)} of 5m" else "Recording for ${formatDuration(elapsed)}", color = Palette.Muted)
+        if (rec.wakeAtMs > 0) Text("Wake-up at ${clock(rec.wakeAtMs)}", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(28.dp))
 
         if (rec.micPaused) {
@@ -513,6 +550,49 @@ private fun HoldToStopButton(onStop: () -> Unit, onAccessibleStop: () -> Unit) {
         Text(
             if (hint) "Keep holding to stop and see results" else " ",
             color = Palette.Muted, style = MaterialTheme.typography.labelSmall,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WakeCard(wake: WakeSetting, onWake: (WakeSetting) -> Unit) {
+    var picking by remember { mutableStateOf(false) }
+    Card {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    SectionTitle("Wake-up alarm")
+                    Text(
+                        if (wake.enabled) "Stops recording and rings at this time." else "Off",
+                        color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(checked = wake.enabled, onCheckedChange = { onWake(wake.copy(enabled = it)) })
+            }
+            if (wake.enabled) {
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton({ picking = true }) {
+                        Text("%02d:%02d".format(wake.hour, wake.minute), fontSize = 22.sp, fontWeight = FontWeight.Medium)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Keep your usual alarm too, in case the phone closes the app.",
+                        color = Palette.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+    if (picking) {
+        val state = rememberTimePickerState(wake.hour, wake.minute, is24Hour = true)
+        AlertDialog(
+            onDismissRequest = { picking = false },
+            title = { Text("Wake-up time") },
+            text = { TimeInput(state) },
+            confirmButton = { TextButton({ picking = false; onWake(wake.copy(hour = state.hour, minute = state.minute)) }) { Text("Set") } },
+            dismissButton = { TextButton({ picking = false }) { Text("Cancel") } },
         )
     }
 }
