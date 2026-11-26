@@ -161,6 +161,12 @@ class RecordingPolicyTest {
         assertNull(com.quietnight.app.audio.firstWorkingRate(listOf(16000)) { null })
     }
 
+    @Test fun screenMayTurnOffAfterTenMinutesDimmed() {
+        assertTrue(RecordingPolicy.keepScreenOn(dimmed = false, dimmedForMs = 99 * 60_000L))
+        assertTrue(RecordingPolicy.keepScreenOn(dimmed = true, dimmedForMs = 9 * 60_000L))
+        assertFalse(RecordingPolicy.keepScreenOn(dimmed = true, dimmedForMs = 10 * 60_000L))
+    }
+
     @Test fun serviceLifecycle() {
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = false))
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = true))
