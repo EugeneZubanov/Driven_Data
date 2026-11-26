@@ -13,6 +13,10 @@ class Columns(val levels: IntArray, val amps: IntArray, val firstCovered: Int, v
     var gaps: BooleanArray = BooleanArray(levels.size)
         internal set
 
+    /** Columns with talking or other sounds. */
+    var others: BooleanArray = BooleanArray(levels.size)
+        internal set
+
     /** Loudness of snoring the user marked as not snoring, per column; 0 where there is none. */
     var corrected: IntArray = IntArray(levels.size)
         internal set
@@ -50,6 +54,7 @@ object NightStats {
         val any = BooleanArray(count)
         val mask = session.gapMask
         val corr = IntArray(count)
+        val oth = BooleanArray(count)
         val notSnoring = session.notSnoringMask
         for (b in from until to) {
             val t = session.startMs + b * bucketMs
@@ -62,11 +67,13 @@ object NightStats {
             val l = session.effectiveLevel(b)
             val a = session.amps[b].toInt()
             if (notSnoring[b] && !mask[b] && session.levels[b] > 0) corr[c] = maxOf(corr[c], a)
+            if (!mask[b] && session.hasOther(b)) oth[c] = true
             if (l > lv[c] || (l == lv[c] && a > amp[c])) { lv[c] = l; amp[c] = a }
         }
         return Columns(lv, amp, if (last < 0) 0 else first, last).also { cols ->
             cols.gaps = BooleanArray(count) { any[it] && !heard[it] }
             cols.corrected = corr
+            cols.others = oth
         }
     }
 

@@ -240,6 +240,7 @@ private fun timelineDescription(session: Session): String = buildString {
     append("Timeline from ${clock(session.startMs)} to ${clock(session.endMs)}. ")
     append("Snoring ${formatDuration(session.snoringSec)}.")
     if (session.gapSec > 0) append(" No sound for ${formatDuration(session.gapSec)}.")
+    if (session.otherSec > 0) append(" Talking or other sounds ${formatDuration(session.otherSec)}.")
     if (session.interruptedAtMs > 0) append(" Cut short at ${clock(session.interruptedAtMs)}.")
     NightStats.loudestHour(session)?.let { append(" Loudest hour from ${clock(it)}.") }
     if (session.clips.isNotEmpty()) append(" ${session.clips.size} saved clips, listed below.")
@@ -386,6 +387,12 @@ fun TimelineChart(
                             val h = base + (plotH - base) * ampFraction(cols.amps[c])
                             drawRoundRect(Palette.levels[l], Offset(c * w, plotBottom - h), Size(bw, h), CornerRadius(bw / 2.5f))
                         }
+                        // talking or other sounds: small neutral ticks just above the baseline
+                        val tickH = 5.dp.toPx()
+                        for (c in 0 until count) {
+                            if (!cols.others[c] || cols.gaps[c]) continue
+                            drawRect(Palette.Muted, Offset(c * w + (w - 2f) / 2f - 1f, plotBottom - base - tickH - 2f), Size(2f, tickH))
+                        }
                         selection?.let { sel ->
                             val l = xOf(session.startMs + sel.fromSec * 1000L).coerceIn(0f, size.width)
                             val r = xOf(session.startMs + sel.toSec * 1000L).coerceIn(0f, size.width)
@@ -442,6 +449,7 @@ fun TimelineChart(
                             val what = when {
                                 cols.gaps[c] -> "No sound"
                                 cols.levels[c] == 0 && cols.corrected[c] > 0 -> "Not snoring"
+                                cols.levels[c] == 0 && cols.others[c] -> "Other sound"
                                 else -> Level.names[cols.levels[c]]
                             }
                             val layout = measurer.measure("${clock(at)} · $what", readoutStyle)

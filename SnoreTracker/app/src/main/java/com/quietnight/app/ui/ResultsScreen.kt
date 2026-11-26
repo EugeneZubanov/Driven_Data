@@ -469,6 +469,16 @@ fun SessionDetailScreen(
                     TextButton({ markNotSnoring(sel); selection = null }) { Text("Not snoring") }
                 }
             }
+            if (session.otherSec > 0) {
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(width = 10.dp, height = 10.dp), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(width = 2.dp, height = 8.dp).background(Palette.Muted))
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text("Talking or other sounds, not counted as snoring", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
             if (session.notSnoring.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -512,6 +522,7 @@ fun SessionDetailScreen(
                     if (quiet != null) StatRow("Longest quiet stretch", formatDuration(quiet.lengthSec))
                     if (loudest != null) StatRow("Loudest hour", "${clock(loudest)} – ${clock(loudest + 3_600_000L)}")
                     if (session.gapSec > 0) StatRow("No sound for", formatDuration(session.gapSec))
+                    if (session.otherSec > 0) StatRow("Talking or other sounds", formatDuration(session.otherSec))
                 }
             }
 

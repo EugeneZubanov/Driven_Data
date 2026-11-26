@@ -153,6 +153,22 @@ class ResultsLogicTest {
         assertEquals("12.5 MB", NightStats.formatBytes(12L * 1024 * 1024 + 512 * 1024))
     }
 
+    @Test fun otherSoundsNeverCountAsSnoring() {
+        val s = night("..22..2...")
+        val others = ByteArray(10).also { it[1] = 1; it[2] = 2; it[3] = 2 } // talking at 1, other sounds over 2-3
+        val o = Session(s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags, s.clips, others = others)
+        assertEquals(180, o.otherSec)
+        assertEquals(60, o.snoringSec) // only minute 6 still counts
+        assertTrue(o.score < s.score)
+        assertEquals(Level.QUIET, o.effectiveLevel(2))
+        val cols = NightStats.columns(o, o.startMs, o.endMs, 10)
+        assertArrayEquals(BooleanArray(10) { it in 1..3 }, cols.others)
+        assertEquals(0, cols.levels[2])
+        // Old nights without the field are unchanged.
+        assertEquals(0, s.otherSec)
+        assertEquals(Session.fromJson(JSONObject(o.toJson().toString())).otherSec, 180)
+    }
+
     @Test fun tipPicksOneFact() {
         val q = ".".repeat(20)
         assertEquals("Most snoring came in the last third of the night.", NightStats.tip(night(q + q + "2".repeat(10) + ".".repeat(10))))

@@ -351,6 +351,14 @@ class ScreenshotTest {
         shot("results-test-run") { ResultsListScreen(list, nowMs = now) {} }
     }
 
+    @Test fun detailOtherSounds() {
+        val b = withClips()
+        // Talking now and then in quiet stretches.
+        val others = ByteArray(b.levels.size) { i -> if (b.levels[i].toInt() == 0 && i % 97 < 4) 1 else 0 }
+        val s = Session(b.id, b.startMs, b.endMs, b.bucketSec, b.levels, b.amps, b.tags, b.clips, b.demo, note = b.note, others = others)
+        shot("detail-other-sounds") { SessionDetailScreen(s, {}, {}, null, {}, { File(it) }, history = sessions, onSave = {}) }
+    }
+
     @Test fun resultsLargeText() = bigShot("results-large-text") { ResultsListScreen(sessions, nowMs = now) {} }
 
     @Test fun detailClips() {
