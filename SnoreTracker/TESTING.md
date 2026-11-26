@@ -15,10 +15,11 @@ If a result differs, note the step number and carry on.
 | 6 | Start a normal recording (Fall-asleep delay: None). Tap Hold to stop briefly. | "Keep holding…" hint; recording continues. |
 | 7 | Call the phone from another phone, talk 1–2 minutes, hang up. | During the call the night view says the microphone is in use; afterwards it says Listening again. Stop (hold 1.5 s): the night shows a stretch without sound around the call. |
 | 8 | Tonight › Wake-up alarm: on, set 3 minutes from now. Start recording, turn the screen off. Leave the phone. | At that time the recording stops and saves and an alarm rings until you act. Tap Snooze 5 min: it rings again about 5 min later. Then Turn off. Repeat once with Do Not Disturb on (alarms allowed). |
-| 9 | Start recording. Wait 3 minutes. Swipe the app away from recent apps, or Settings › Apps › Quiet Night › Force stop. Open the app again. | Record tab note: "cut short at HH:MM … kept"; Open night shows the first minutes. |
+| 9 | Start recording. Wait 3 minutes. Settings › Apps › Quiet Night › Force stop. Open the app again. | Record tab note: "cut short at HH:MM … kept"; Open night shows the first minutes. |
 | 10 | Start recording, leave the phone untouched on the Record tab for 12 minutes. | Night view dims at 30 s; after about 10 min dimmed the screen turns off; the notification still counts up. Unlock: the dimmed night view, still recording. |
 | 11 | Optional, overnight: plugged in, battery setting allowed, record a full night. | A whole night in Results in the morning; note battery % used if it was unplugged. |
-| 12 | Settings › Back up, save the file. Delete one night. Settings › Restore from that file. | The deleted night comes back with its clips. |
+| 12 | Tonight › Full-night audio: on. Do a 12-minute recording, talking now and then. | Night saves as usual and no "Full-night audio could not be recorded" note appears on the Record tab. (Playback comes later.) Turn it off again. |
+| 13 | Settings › Back up, save the file. Delete one night. Settings › Restore from that file. | The deleted night comes back with its clips. |
 
 ## If something fails, send back
 

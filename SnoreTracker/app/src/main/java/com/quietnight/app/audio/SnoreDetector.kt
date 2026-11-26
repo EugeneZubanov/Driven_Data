@@ -26,6 +26,18 @@ data class SnoreEvent(
 )
 
 /**
+ * A loud stretch that was not snoring, reported through [SnoreDetector.onOther]. [kind] is a bit
+ * flag: [TALKING] when it was rejected as syllable-like, otherwise [OTHER] (coughs, bangs, music,
+ * a fan starting, anything loud). A heuristic label, not a classifier.
+ */
+data class OtherSound(val startMs: Long, val durationMs: Long, val kind: Int, val dbAboveFloor: Float) {
+    companion object {
+        const val TALKING = 1
+        const val OTHER = 2
+    }
+}
+
+/**
  * Streaming snore detector. Pure Kotlin so it can be unit-tested off-device.
  *
  * Per 50 ms frame it measures:
@@ -94,6 +106,16 @@ class SnoreDetector(
     @Volatile
     var currentDbAboveFloor = 0f
         private set
+
+    /** Optional: loud stretches that were not snoring. Never changes what counts as a snore. */
+    var onOther: ((OtherSound) -> Unit)? = null
+
+    // current loud stretch (any pitch), for [onOther]
+    private var loudStart = -1L
+    private var loudLast = -1L
+    private var loudPeak = 0f
+    private var loudTalk = false
+    private var loudSnore = false
 
     // current burst
     private var burstStart = -1L
@@ -194,7 +216,22 @@ class SnoreDetector(
             burstStart = -1
         }
         if (burstStart >= 0) trackDips(db)
+        if (onOther != null) trackLoud(nowMs, above)
         expireRhythm(nowMs)
+    }
+
+    private fun trackLoud(nowMs: Long, above: Float) {
+        if (above >= thresholdDb) {
+            if (loudStart < 0) { loudStart = nowMs; loudPeak = above; loudTalk = false; loudSnore = false }
+            loudPeak = max(loudPeak, above)
+            loudLast = nowMs
+        } else if (loudStart >= 0 && nowMs - loudLast > 300) {
+            val dur = loudLast + frameMs - loudStart
+            if (!loudSnore && dur >= 300) {
+                onOther?.invoke(OtherSound(loudStart, dur, if (loudTalk) OtherSound.TALKING else OtherSound.OTHER, loudPeak))
+            }
+            loudStart = -1
+        }
     }
 
     /** Counts sharp dips inside a burst (≥ 6 dB down and back up), as between spoken syllables. */
@@ -229,7 +266,9 @@ class SnoreDetector(
         }
         minuteMaxFloor = max(minuteMaxFloor, floorDb)
         if (++minuteFrames == 1200) {
-            baselineDb = minOf(baselineDb, max(minuteMaxFloor, MIN_FLOOR_DB))
+            // A minute at the clamp is digital silence (mic muted, blocked or gated by noise
+            // suppression), not a quiet room: it would make every later snore look heavy.
+            if (minuteMaxFloor > MIN_FLOOR_DB + 3f) baselineDb = minOf(baselineDb, minuteMaxFloor)
             minuteMaxFloor = Float.NEGATIVE_INFINITY
             minuteFrames = 0
         }
@@ -247,9 +286,10 @@ class SnoreDetector(
         // Syllable-like chopping without the flutter of a snore: probably talking. On the synthetic
         // corpus speech scores 0.02–0.05, pulsed snores ~0.3, hiss-like snores ~0.1, and snores
         // overlapped by talking 0.13–0.26. Creaky voice may well be rough too; unverified.
-        if (burstDips >= 1 && dipsPerSec >= 1.5f && rough < ROUGH_SNORE) return
+        if (burstDips >= 1 && dipsPerSec >= 1.5f && rough < ROUGH_SNORE) { loudTalk = true; return }
         // Chopped up at a syllable rate (~3+ per second) is talking even if the voice is creaky.
-        if (burstDips >= 3 && dipsPerSec >= 2.5f) return
+        if (burstDips >= 3 && dipsPerSec >= 2.5f) { loudTalk = true; return }
+        loudSnore = true
         // A rough 0–1 score from how clearly the burst shows the snore traits; not calibrated.
         var conf = 0.4f
         if (rough >= 0.15f) conf += 0.2f
@@ -347,6 +387,7 @@ class SnoreDetector(
      */
     fun interrupt() {
         burstStart = -1
+        loudStart = -1
         candCount = 0
         periodMs = 0
         lastSnoreStart = -1

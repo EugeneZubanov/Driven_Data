@@ -82,6 +82,7 @@ class ScreenshotTest {
         SettingsScreen(
             Prefs(reminderOn = true), false, true, {}, {}, {}, {}, {}, {}, {}, "Added 12 nights. 3 already here.",
             onShowIntro = {}, onReminder = { _, _ -> }, weight = WeightLog(), onWeight = {},
+            onSaveReport = {}, onShareReport = {},
         )
     })
 
@@ -217,6 +218,15 @@ class ScreenshotTest {
         compose.onRoot().captureRoboImage("build/shots/record-360-font130.png")
         compose.onNodeWithText("Tonight").performScrollTo()
         compose.onRoot().captureRoboImage("build/shots/record-360-font130-tonight.png")
+    }
+
+    @Test fun recordFullAudio() {
+        shot("record-full-audio") {
+            RecordScreen(Prefs(), RecState(), null, {}, {}, {}, {}, nowMs = { now }, fullAudio = true)
+        }
+        compose.onNodeWithText("Full-night audio").performScrollTo().performClick()
+        compose.onNodeWithText("Full-night audio").performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/record-full-audio.png")
     }
 
     @Test fun recordingDimmed() = shot("recording-dimmed") {

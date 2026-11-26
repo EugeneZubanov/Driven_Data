@@ -54,6 +54,10 @@ class Session(
      * [levels] is kept as it was, so removing a span undoes the correction exactly.
      */
     val notSnoring: List<Span> = emptyList(),
+    /** Per bucket: OtherSound kind bits (1 talking, 2 other loud sound). Empty if not recorded. */
+    val others: ByteArray = ByteArray(0),
+    /** Per bucket: highest snore confidence 0–100 (a rough heuristic). Empty if not recorded. */
+    val conf: ByteArray = ByteArray(0),
 ) {
     val durationSec: Int get() = ((endMs - startMs) / 1000).toInt()
 
@@ -145,16 +149,18 @@ class Session(
         if (gaps.isNotEmpty()) put("gaps", JSONArray().also { arr -> gaps.forEach { arr.put(JSONArray().put(it.fromSec).put(it.toSec)) } })
         if (note.isNotEmpty()) put("note", note)
         if (notSnoring.isNotEmpty()) put("notSnoring", JSONArray().also { arr -> notSnoring.forEach { arr.put(JSONArray().put(it.fromSec).put(it.toSec)) } })
+        if (others.any { it.toInt() != 0 }) put("others", Base64.getEncoder().encodeToString(others))
+        if (conf.any { it.toInt() != 0 }) put("conf", Base64.getEncoder().encodeToString(conf))
     }
 
     /** Same night with tags and note changed after the fact. */
     fun withEdits(tags: List<String>, note: String): Session =
-        Session(id, startMs, endMs, bucketSec, levels, amps, tags, clips, demo, interruptedAtMs, gaps, note, notSnoring)
+        Session(id, startMs, endMs, bucketSec, levels, amps, tags, clips, demo, interruptedAtMs, gaps, note, notSnoring, others = others, conf = conf)
 
     /** Same night with a different set of not-snoring corrections. */
     fun withNotSnoring(spans: List<Span>): Session = Session(
         id, startMs, endMs, bucketSec, levels, amps, tags, clips, demo = demo,
-        interruptedAtMs = interruptedAtMs, gaps = gaps, note = note, notSnoring = spans,
+        interruptedAtMs = interruptedAtMs, gaps = gaps, note = note, notSnoring = spans, others = others, conf = conf,
     )
 
     /** False for test runs and nights with under an hour actually listened to. */
@@ -188,6 +194,8 @@ class Session(
                 gaps = List(gaps.length()) { gaps.getJSONArray(it).let { g -> Gap(g.getInt(0), g.getInt(1)) } },
                 note = o.optString("note", ""),
                 notSnoring = List(notSnoring.length()) { notSnoring.getJSONArray(it).let { g -> Span(g.getInt(0), g.getInt(1)) } },
+                others = o.optString("others", "").let { if (it.isEmpty()) ByteArray(0) else Base64.getDecoder().decode(it) },
+                conf = o.optString("conf", "").let { if (it.isEmpty()) ByteArray(0) else Base64.getDecoder().decode(it) },
             )
         }
     }

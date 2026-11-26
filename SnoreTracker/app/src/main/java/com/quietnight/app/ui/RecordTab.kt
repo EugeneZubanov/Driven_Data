@@ -24,6 +24,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.quietnight.app.audio.MicCheck
+import com.quietnight.app.audio.NightAudioPref
 import com.quietnight.app.audio.WakeAlarm
 import com.quietnight.app.audio.WakeSetting
 import android.os.Build
@@ -56,6 +57,7 @@ fun RecordTab(
         if (granted) MicCheck.start(context)
     }
     val wake by WakeAlarm.setting(context).collectAsStateWithLifecycle()
+    val fullAudio by NightAudioPref.state(context).collectAsStateWithLifecycle()
     val testRunPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (granted.isNotEmpty()) RecordingService.start(context, testRun = true)
     }
@@ -94,6 +96,8 @@ fun RecordTab(
             if (needed.isEmpty()) RecordingService.start(context, testRun = true) else testRunPermissions.launch(needed.toTypedArray())
         },
         manufacturer = Build.MANUFACTURER ?: "",
+        fullAudio = fullAudio == true,
+        onFullAudio = { NightAudioPref.set(context, it) },
         onKeepScreenOn = { on ->
             // MainActivity holds the screen on while recording on this tab; let it go after a long dim.
             context.findActivity()?.window?.let { w ->

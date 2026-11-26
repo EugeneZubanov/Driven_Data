@@ -71,6 +71,7 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import com.quietnight.app.audio.MicCheckState
+import com.quietnight.app.audio.NightAudioWriter
 import com.quietnight.app.audio.RecordingPolicy
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.filled.ExpandLess
@@ -113,12 +114,15 @@ fun RecordScreen(
     onTestRun: () -> Unit = {},
     /** Build.MANUFACTURER, for phone-specific battery steps. */
     manufacturer: String = "",
+    /** Keep the whole night's audio, not just the loudest clips. */
+    fullAudio: Boolean = false,
+    onFullAudio: (Boolean) -> Unit = {},
 ) {
     if (rec.recording) RecordingView(rec, onStop, nowMs, onDimmed, dimAfterMs, onKeepScreenOn)
     else IdleView(
         prefs, rec, lastSession, onStart, onPrefs, onOpenSession,
         batteryExempt, onFixBattery, startWarnings, onDismissNotice, mic, onMicCheck,
-        wake, onWake, onTestRun, manufacturer,
+        wake, onWake, onTestRun, manufacturer, fullAudio, onFullAudio,
     )
 }
 
@@ -141,6 +145,8 @@ private fun IdleView(
     onWake: (WakeSetting) -> Unit,
     onTestRun: () -> Unit,
     manufacturer: String,
+    fullAudio: Boolean,
+    onFullAudio: (Boolean) -> Unit,
 ) {
     var addKind by remember { mutableStateOf<String?>(null) }
     var oemHelp by remember { mutableStateOf(false) }
@@ -192,7 +198,7 @@ private fun IdleView(
         Spacer(Modifier.height(16.dp))
         TonightCard(
             prefs = prefs, onPrefs = onPrefs, wake = wake, onWake = onWake, mic = mic, onMicCheck = onMicCheck,
-            onAddTag = { addKind = it },
+            onAddTag = { addKind = it }, fullAudio = fullAudio, onFullAudio = onFullAudio,
         )
 
         if (lastSession != null) {
@@ -585,6 +591,8 @@ private fun TonightCard(
     mic: MicCheckState,
     onMicCheck: () -> Unit,
     onAddTag: (String) -> Unit,
+    fullAudio: Boolean = false,
+    onFullAudio: (Boolean) -> Unit = {},
 ) {
     var open by remember { mutableStateOf<String?>(null) }
     @Composable
@@ -653,6 +661,18 @@ private fun TonightCard(
                         )
                     }
                     Spacer(Modifier.height(10.dp))
+                }
+            }
+            SettingRow("audio", "Full-night audio", if (fullAudio) "On" else "Off") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Keep all of tonight's sound, not just the loudest clips. " +
+                            "About ${NightAudioWriter.estimateBytes(8.0) / 1_000_000} MB for an 8-hour night; " +
+                            "it turns itself off if the phone runs low on space.",
+                        color = Palette.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Switch(checked = fullAudio, onCheckedChange = onFullAudio)
                 }
             }
             SettingRow(

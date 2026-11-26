@@ -162,6 +162,41 @@ class RecordingServiceTest {
         assertTrue(s.levels.indices.filter { s.levels[it] > 0 }.all { it in 2..10 })
     }
 
+    @Test fun fullNightAudioIsKeptInSegmentsAroundACall() {
+        com.quietnight.app.audio.NightAudioPref.set(app, true)
+        RecordingEnv.encoder = com.quietnight.app.audio.EncoderFactory { f, _ -> FakeEncoder(f) }
+        takenSec = 180.0..300.0
+        stops += 420.0
+        startNight()
+        awaitNightEnd()
+        com.quietnight.app.audio.NightAudioPref.set(app, false)
+        val id = RecordingService.state.value.finishedId!!
+        val segs = com.quietnight.app.audio.SegmentIndex.read(app.repository.clipDir(id))
+        assertEquals(2, segs.size)
+        assertEquals(0L, segs[0].startMs)
+        assertTrue("first ${segs[0]}", segs[0].durationMs in 179_000L..181_000L)
+        assertTrue("second ${segs[1]}", segs[1].startMs in 300_000L..340_000L)
+        assertTrue(segs.all { java.io.File(app.repository.clipDir(id), it.file).readText().contains("|done:") })
+        assertNull(RecordingService.state.value.notice)
+    }
+
+    @Test fun fullNightAudioTurnsOffWhenStorageRunsLow() {
+        com.quietnight.app.audio.NightAudioPref.set(app, true)
+        RecordingEnv.encoder = com.quietnight.app.audio.EncoderFactory { f, _ -> FakeEncoder(f) }
+        RecordingEnv.freeBytes = { if (now() < 120) 5_000_000_000L else 10_000_000L }
+        stops += 300.0
+        startNight()
+        awaitNightEnd()
+        com.quietnight.app.audio.NightAudioPref.set(app, false)
+        val state = RecordingService.state.value
+        val s = saved(state.finishedId)
+        assertTrue(s.durationSec >= 299)
+        val segs = com.quietnight.app.audio.SegmentIndex.read(app.repository.clipDir(s.id))
+        assertEquals(1, segs.size)
+        assertTrue("seg ${segs[0]}", segs[0].durationMs in 119_000L..123_000L)
+        assertTrue(state.notice!!.contains("low on storage"))
+    }
+
     @Test fun lowBatteryStopsAndSavesWithANote() {
         battery = 50 to false
         startNight()

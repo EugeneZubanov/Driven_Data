@@ -56,7 +56,20 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Keep any night that was cut short because the app was closed while recording.
         RecordingService.recoverInterrupted(application as QuietNightApp)
+        // A reminder (or widget) tap asks for a tab; only on a fresh start, not when restoring state.
+        if (savedInstanceState == null) openTabRequest.value = Reminder.requestedTab(intent)
         setContent { QuietNightTheme { AppRoot(application as QuietNightApp) } }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        Reminder.requestedTab(intent)?.let { openTabRequest.value = it }
+    }
+
+    companion object {
+        /** Tab asked for by the launching intent; AppRoot consumes it. */
+        val openTabRequest = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
     }
 }
 
@@ -72,6 +85,10 @@ private fun AppRoot(app: QuietNightApp) {
     val weightStore = remember { WeightStore.get(context.filesDir) }
     val weight by weightStore.log.collectAsStateWithLifecycle()
     var detailId by rememberSaveable { mutableStateOf<String?>(null) }
+    val tabRequest by MainActivity.openTabRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(tabRequest) {
+        tabRequest?.let { tab = it; detailId = null; MainActivity.openTabRequest.value = null }
+    }
     var deletedNotice by remember { mutableStateOf<com.quietnight.app.data.Session?>(null) }
     val loaded by app.repository.loaded.collectAsStateWithLifecycle()
     val is24 = com.quietnight.app.ui.rememberIs24Hour()
@@ -203,6 +220,8 @@ private fun AppRoot(app: QuietNightApp) {
                     onReminder = rememberReminderToggle(app),
                     weight = weight,
                     onWeight = weightStore::update,
+                    onSaveReport = data.onSaveReport,
+                    onShareReport = data.onShareReport,
                 )
                 }
             }

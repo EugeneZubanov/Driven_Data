@@ -54,21 +54,48 @@ the repo so that every build can update an installed copy without losing data.
 - The weight log (a separate small file in app storage) is included in the backup; on restore,
   days already logged on the phone are kept. Older backups without it restore fine.
 
+## Report and widget
+
+- **30-night report** (Settings → Your data): a one-page PDF on a white background for printing or
+  sending to someone, saved where you choose and then shareable from the app. It has the date range,
+  nights recorded, average score, the nightly score chart, time snoring by level, the
+  with/without table (same minimum-nights rule) and weight if logged, and states that it is a
+  sound-based estimate, not a diagnosis.
+- **Home-screen widget**: last night's score and time snoring; tap to open the app. It refreshes
+  when a night is saved and once a day.
+
 ## Bedtime reminder
 
 An optional daily notification at a time you choose. It uses an inexact alarm (no exact-alarm
 permission), so it may come a few minutes late, and is re-armed after a reboot, an app update or a
 clock/time-zone change. On Android 13+ turning it on asks for the notification permission.
+Tapping the notification opens the Record tab.
 
 ## How detection works
 
-`SnoreDetector` looks at 50 ms frames: loudness above the room's noise floor (the quietest frame
-of the last ~10 s, so a fan switching on is absorbed within seconds), the share of energy below
-~900 Hz, and how much the low band flutters at 15–70 Hz. Loud, low-pitched bursts 0.35–4 s long
-count once three of them repeat at a steady breathing interval (2–10 s); bursts chopped up like
-syllables are ignored unless they flutter like a snore. The score is the share of the night spent
-snoring, weighted mild 0.4×, loud 1×, heavy 2×. It is a heuristic, not a medical measurement.
+`SnoreDetector` works on 50 ms frames at whatever rate the microphone gives (16, 44.1 or 48 kHz):
 
-The unit tests run it over a synthetic corpus of snoring and night-time noises and print a hit-rate
-table (`app/build/reports/detector-corpus.txt`). That catches regressions; it does not prove
-accuracy on real recordings.
+- **Loudness** above the room's noise floor: the quietest frame of the last ~10 s, so a fan
+  switching on is absorbed within seconds.
+- **Pitch**: the share of energy between 70 and 900 Hz.
+- **Flutter**: how much the low band pulses at 15–70 Hz, as many snores do; voices and music don't.
+
+Loud, low-pitched bursts 0.35–4 s long become candidates. They count as snoring once three of them
+repeat at a steady breathing interval (2–10 s apart); after that, each burst on the rhythm counts
+straight away. Bursts chopped up like syllables are treated as talking, and perfectly regular
+repeats (a ringer, an alarm) as a machine. Loud sounds that are not snoring can be reported
+separately as "talking" or "other".
+
+Levels (mild / loud / heavy: 18 and 28 dB thresholds) are measured against the quietest floor
+that held for a full minute that night, so snoring stays loud after a fan comes on. With a fan
+running all night there is nothing quieter to compare with, and the same snore reads milder than
+in a silent room: the phone's microphone is not calibrated, so there is no absolute level. The
+score is the share of the listened night spent snoring, weighted mild 0.4×, loud 1×, heavy 2×.
+It is a heuristic, not a medical measurement.
+
+The unit tests run the detector over a synthetic corpus of snoring and night-time noises at all
+three rates and print a hit-rate table (`app/build/reports/detector-corpus.txt`), plus a simulated
+8-hour night. That catches regressions; it does not prove accuracy on real recordings. Known weak
+spots: creaky talking can still pass as snoring now and then, two people snoring together are
+merged, very quiet snoring on low-gain phones is missed at low sensitivity, and phones with heavy
+noise suppression may report levels too high.
