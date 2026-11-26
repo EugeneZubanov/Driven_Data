@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -173,6 +174,13 @@ class ScreenshotTest {
         bigShot("detail-large-text") { SessionDetailScreen(withProblems(), {}, {}, null, {}, { File(it) }, history = sessions, onSave = {}) }
         compose.onAllNodesWithContentDescription("Play clip from", substring = true, useUnmergedTree = true).onLast().performScrollTo()
         compose.onRoot().captureRoboImage("build/shots/detail-large-text-clips.png")
+    }
+
+    @Test fun resultsSearch() {
+        val noted = sessions.mapIndexed { i, s -> if (i % 4 == 1) s.withEdits(s.tags, "Dinner out with friends") else s }
+        shot("results-search") { ResultsListScreen(noted, nowMs = now) {} }
+        compose.onNodeWithText("Search notes").performTextInput("dinner")
+        compose.onRoot().captureRoboImage("build/shots/results-search.png")
     }
 
     @Test fun resultsLargeText() = bigShot("results-large-text") { ResultsListScreen(sessions, nowMs = now) {} }

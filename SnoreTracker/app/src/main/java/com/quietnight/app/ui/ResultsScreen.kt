@@ -30,7 +30,9 @@ import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
@@ -120,6 +122,8 @@ fun ResultsListScreen(
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var chosen by rememberSaveable { mutableStateOf<String?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val hasNotes = remember(sessions) { sessions.any { it.note.isNotBlank() } }
     val tags = remember(sessions) { NightStats.usedTags(sessions) }
     val filter = chosen?.takeIf { it in tags }
 
@@ -139,7 +143,7 @@ fun ResultsListScreen(
         if (sessions.isEmpty()) {
             EmptyState("No nights yet", "Record a night from the Record tab, or add sample nights in Settings to look around.")
         } else {
-            val shown = remember(sessions, filter) { NightStats.filterByTag(sessions, filter) }
+            val shown = remember(sessions, filter, query) { NightStats.search(NightStats.filterByTag(sessions, filter), query) }
             val pinned = shown.firstOrNull()
             val byMonth = remember(shown) { shown.drop(1).groupBy { fmt("MMMM yyyy", it.endMs) } }
             val monthAll = remember(shown) { shown.groupBy { fmt("MMMM yyyy", it.endMs) } }
@@ -156,11 +160,37 @@ fun ResultsListScreen(
                         }
                     }
                 }
+                if (hasNotes) {
+                    item(key = "search") {
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it.take(60) },
+                            placeholder = { Text("Search notes") },
+                            leadingIcon = { Icon(Icons.Filled.Search, null) },
+                            trailingIcon = if (query.isEmpty()) null else {
+                                { IconButton({ query = "" }) { Icon(Icons.Filled.Close, "Clear search") } }
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Palette.Text,
+                                unfocusedTextColor = Palette.Text,
+                                focusedBorderColor = Palette.Moon,
+                                unfocusedBorderColor = Palette.Outline,
+                                unfocusedPlaceholderColor = Palette.Muted,
+                                focusedPlaceholderColor = Palette.Muted,
+                                unfocusedLeadingIconColor = Palette.Muted,
+                                focusedLeadingIconColor = Palette.Muted,
+                                cursorColor = Palette.Moon,
+                            ),
+                        )
+                    }
+                }
                 if (pinned != null) {
                     item(key = "pinned-" + pinned.id) {
                         val recent = nowMs - pinned.endMs in 0..(36 * 3_600_000L)
                         Text(
-                            if (filter != null) "Latest with ${Tags.label(filter)}" else if (recent) "Last night" else "Latest night",
+                            if (filter != null) "Latest with ${Tags.label(filter)}" else if (query.isNotBlank()) "Latest match" else if (recent) "Last night" else "Latest night",
                             Modifier.padding(top = 20.dp, bottom = 8.dp),
                             style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                         )
@@ -168,7 +198,7 @@ fun ResultsListScreen(
                     }
                 }
                 if (shown.isEmpty()) {
-                    item { Text("No nights with this tag.", Modifier.padding(top = 20.dp), color = Palette.Muted) }
+                    item { Text(if (query.isNotBlank()) "No nights match." else "No nights with this tag.", Modifier.padding(top = 20.dp), color = Palette.Muted) }
                 }
                 monthAll.forEach { (month, all) ->
                     val list = byMonth[month].orEmpty()

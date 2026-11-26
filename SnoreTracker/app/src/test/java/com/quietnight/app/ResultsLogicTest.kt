@@ -124,6 +124,17 @@ class ResultsLogicTest {
         assertEquals(0, NightStats.averageScore(emptyList()))
     }
 
+    @Test fun searchMatchesNotesAndTagNames() {
+        val a = night("1", "a", tags = listOf("f:Alcohol")).withEdits(listOf("f:Alcohol"), "Dinner out, late night")
+        val b = night("1", "b").withEdits(emptyList(), "Cold, blocked nose")
+        val all = listOf(a, b)
+        assertEquals(listOf(a), NightStats.search(all, "dinner"))
+        assertEquals(listOf(a), NightStats.search(all, "ALCO"))
+        assertEquals(listOf(b), NightStats.search(all, " blocked "))
+        assertEquals(all, NightStats.search(all, "  "))
+        assertTrue(NightStats.search(all, "zzz").isEmpty())
+    }
+
     @Test fun shareTextHasTheEssentials() {
         val s = night("....222222....", tags = listOf("f:Alcohol", "r:Nasal strip")).withEdits(listOf("f:Alcohol", "r:Nasal strip"), "Slept late ")
         val text = NightStats.shareText(s, listOf(s), utc, Locale.US)

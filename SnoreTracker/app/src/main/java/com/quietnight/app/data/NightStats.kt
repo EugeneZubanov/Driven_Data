@@ -166,6 +166,13 @@ object NightStats {
     fun usedTags(sessions: List<Session>): List<String> =
         sessions.flatMap { it.tags }.distinct().sortedWith(compareBy({ Tags.isRemedy(it) }, { Tags.label(it).lowercase() }))
 
+    /** Nights whose note or tag names contain [query], ignoring case. A blank query keeps all. */
+    fun search(sessions: List<Session>, query: String): List<Session> {
+        val q = query.trim()
+        if (q.isEmpty()) return sessions
+        return sessions.filter { s -> s.note.contains(q, ignoreCase = true) || s.tags.any { Tags.label(it).contains(q, ignoreCase = true) } }
+    }
+
     fun filterByTag(sessions: List<Session>, tag: String?): List<Session> =
         if (tag == null) sessions else sessions.filter { tag in it.tags }
 
