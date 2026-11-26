@@ -94,7 +94,9 @@ fun RecordTab(
             if (needed.isEmpty()) RecordingService.start(context, testRun = true) else testRunPermissions.launch(needed.toTypedArray())
         },
         manufacturer = Build.MANUFACTURER ?: "",
-        onDimmed = { dim -> context.findActivity()?.window?.let { w -> w.attributes = w.attributes.also { it.screenBrightness = if (dim) 0.01f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } } },
+        onDimmed = { dim ->
+            RecordingService.uiDimmed = dim
+            context.findActivity()?.window?.let { w -> w.attributes = w.attributes.also { it.screenBrightness = if (dim) 0.01f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } } },
     )
 
     DisposableEffect(Unit) { onDispose { MicCheck.stop() } }

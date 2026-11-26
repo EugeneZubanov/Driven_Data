@@ -127,6 +127,7 @@ class ScreenshotTest {
                 batteryExempt = false, wake = WakeSetting(enabled = true, hour = 6, minute = 45),
             )
         }
+        compose.onNodeWithText("Wake-up alarm").performScrollTo().performClick()
         compose.onNodeWithText("Wake-up alarm").performScrollTo()
         compose.onRoot().captureRoboImage("build/shots/record-wake.png")
     }
@@ -152,6 +153,48 @@ class ScreenshotTest {
             Prefs(), RecState(recording = true, startMs = now - 2 * 3600_000L, listening = true, wakeAtMs = now + 5 * 3600_000L),
             null, {}, {}, {}, {}, nowMs = { now },
         )
+    }
+
+    @Test fun recordTonightOpen() {
+        shot("record-tonight") {
+            RecordScreen(
+                Prefs(selectedTags = setOf("r:Side sleeping", "f:Alcohol", "r:Nasal strip")), RecState(), sessions.first(), {}, {}, {}, {},
+                nowMs = { now }, wake = WakeSetting(enabled = true, hour = 6, minute = 45),
+            )
+        }
+        compose.onNodeWithText("Factors and remedies").performScrollTo().performClick()
+        compose.onNodeWithText("Factors and remedies").performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/record-tonight.png")
+    }
+
+    @Test @Config(qualifiers = "w360dp-h740dp-xhdpi") fun recordNarrow() = shot("record-360") {
+        RecordScreen(
+            Prefs(selectedTags = setOf("r:Side sleeping")), RecState(error = null), sessions.first(), {}, {}, {}, {},
+            nowMs = { now }, batteryExempt = false, wake = WakeSetting(enabled = true, hour = 6, minute = 45),
+        )
+    }
+
+    @Test @Config(qualifiers = "w360dp-h740dp-xhdpi") fun recordLargeFont() {
+        compose.setContent {
+            val d = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, 1.3f),
+            ) {
+                QuietNightTheme {
+                    Box(Modifier.fillMaxSize().background(Palette.Background)) {
+                        RecordScreen(
+                            Prefs(selectedTags = setOf("r:Side sleeping", "f:Alcohol", "r:Nasal strip")),
+                            RecState(notice = "Your last recording was cut short at 03:12, probably because the phone closed the app. The night up to then was kept."),
+                            sessions.first(), {}, {}, {}, {}, nowMs = { now }, batteryExempt = false,
+                            wake = WakeSetting(enabled = true, hour = 6, minute = 45),
+                        )
+                    }
+                }
+            }
+        }
+        compose.onRoot().captureRoboImage("build/shots/record-360-font130.png")
+        compose.onNodeWithText("Tonight").performScrollTo()
+        compose.onRoot().captureRoboImage("build/shots/record-360-font130-tonight.png")
     }
 
     @Test fun recordingDimmed() = shot("recording-dimmed") {

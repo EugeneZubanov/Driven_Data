@@ -131,6 +131,27 @@ class RecordingPolicyTest {
         assertEquals(9 * hour, RecordingPolicy.nextWakeTime(ms("2026-10-24T23:00"), 7, 0, zone) - ms("2026-10-24T23:00"))
     }
 
+    @Test fun uiUpdatesSlowDownWhenNobodyIsLooking() {
+        val awake = RecordingPolicy.uiUpdateEveryMs(screenOn = true, dimmed = false)
+        val dim = RecordingPolicy.uiUpdateEveryMs(screenOn = true, dimmed = true)
+        val off = RecordingPolicy.uiUpdateEveryMs(screenOn = false, dimmed = false)
+        assertTrue(awake <= 250 && dim > awake && off > dim)
+        assertEquals(off, RecordingPolicy.uiUpdateEveryMs(screenOn = false, dimmed = true))
+    }
+
+    @Test fun snoozeUsesAlarmClockWhenAllowed() {
+        assertEquals(com.quietnight.app.audio.WakeAlarm.SnoozeMode.ALARM_CLOCK, com.quietnight.app.audio.WakeAlarm.snoozeMode(26, canScheduleExact = false))
+        assertEquals(com.quietnight.app.audio.WakeAlarm.SnoozeMode.ALARM_CLOCK, com.quietnight.app.audio.WakeAlarm.snoozeMode(30, canScheduleExact = false))
+        assertEquals(com.quietnight.app.audio.WakeAlarm.SnoozeMode.ALARM_CLOCK, com.quietnight.app.audio.WakeAlarm.snoozeMode(34, canScheduleExact = true))
+        assertEquals(com.quietnight.app.audio.WakeAlarm.SnoozeMode.INEXACT_WHILE_IDLE, com.quietnight.app.audio.WakeAlarm.snoozeMode(33, canScheduleExact = false))
+    }
+
+    @Test fun tagSummaryIsShort() {
+        assertEquals("None", com.quietnight.app.ui.tagSummary(emptySet()))
+        assertEquals("Side sleeping, Alcohol", com.quietnight.app.ui.tagSummary(setOf("f:Alcohol", "r:Side sleeping")))
+        assertEquals("Nasal strip, Side sleeping +1", com.quietnight.app.ui.tagSummary(setOf("f:Alcohol", "r:Side sleeping", "r:Nasal strip")))
+    }
+
     @Test fun serviceLifecycle() {
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = false))
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = true))
