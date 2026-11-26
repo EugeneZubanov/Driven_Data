@@ -7,7 +7,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
+import androidx.core.net.toUri
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
@@ -24,6 +24,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.quietnight.app.audio.MicCheck
+import com.quietnight.app.audio.RecordingEnv
+import com.quietnight.app.audio.freeSpace
 import com.quietnight.app.audio.NightAudioPref
 import com.quietnight.app.audio.WakeAlarm
 import com.quietnight.app.audio.WakeSetting
@@ -80,7 +82,7 @@ fun RecordTab(
         onFixBattery = { openBatterySettings(context) },
         startWarnings = {
             val (pct, charging) = RecordingService.readBattery(context)
-            RecordingPolicy.preflightWarnings(pct, charging, context.filesDir.usableSpace)
+            RecordingPolicy.preflightWarnings(pct, charging, freeSpace(context))
         },
         onDismissNotice = RecordingService::clearNotice,
         mic = mic,
@@ -97,6 +99,7 @@ fun RecordTab(
         },
         manufacturer = Build.MANUFACTURER ?: "",
         fullAudio = fullAudio == true,
+        fullAudioSupported = remember { RecordingEnv.audioSupported() },
         onFullAudio = { NightAudioPref.set(context, it) },
         onKeepScreenOn = { on ->
             // MainActivity holds the screen on while recording on this tab; let it go after a long dim.
@@ -133,9 +136,9 @@ private fun isBatteryExempt(context: Context): Boolean =
 @SuppressLint("BatteryLife")
 private fun openBatterySettings(context: Context) {
     val tries = listOf(
-        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}")),
+        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, "package:${context.packageName}".toUri()),
         Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
-        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")),
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()),
     )
     for (i in tries) {
         if (runCatching { context.startActivity(i) }.isSuccess) return

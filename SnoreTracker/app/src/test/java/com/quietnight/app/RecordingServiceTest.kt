@@ -48,6 +48,7 @@ class RecordingServiceTest {
 
     /** Capture rates the simulated phone supports, and every rate list the service asked for. */
     private var supportedRates = listOf(16000)
+    private var overrunAtSec: Double? = null
     private val requested = java.util.Collections.synchronizedList(ArrayList<List<Int>>())
 
     private inner class FakeMic(override val sampleRate: Int) : MicInput {
@@ -58,6 +59,11 @@ class RecordingServiceTest {
                 controller.get().onStartCommand(Intent(app, RecordingService::class.java).setAction("com.quietnight.app.STOP"), 0, 99)
             }
             if (t in takenSec) return -3 // AudioRecord.ERROR_INVALID_OPERATION
+            if (overrunAtSec != null && t >= overrunAtSec!!) {
+                // The app fell behind and the microphone's buffer overflowed: 8 s of audio never arrive.
+                overrunAtSec = null
+                clockMs.addAndGet(8_000)
+            }
             val chunk = TestAudio.chunk(t, size, rnd, snoring, sampleRate)
             chunk.copyInto(buf)
             clockMs.addAndGet(size * 1000L / sampleRate)
@@ -165,6 +171,7 @@ class RecordingServiceTest {
     @Test fun fullNightAudioIsKeptInSegmentsAroundACall() {
         com.quietnight.app.audio.NightAudioPref.set(app, true)
         RecordingEnv.encoder = com.quietnight.app.audio.EncoderFactory { f, _ -> FakeEncoder(f) }
+        RecordingEnv.audioSupported = { true }
         takenSec = 180.0..300.0
         stops += 420.0
         startNight()
@@ -183,6 +190,7 @@ class RecordingServiceTest {
     @Test fun fullNightAudioTurnsOffWhenStorageRunsLow() {
         com.quietnight.app.audio.NightAudioPref.set(app, true)
         RecordingEnv.encoder = com.quietnight.app.audio.EncoderFactory { f, _ -> FakeEncoder(f) }
+        RecordingEnv.audioSupported = { true }
         RecordingEnv.freeBytes = { if (now() < 120) 5_000_000_000L else 10_000_000L }
         stops += 300.0
         startNight()
@@ -195,6 +203,33 @@ class RecordingServiceTest {
         assertEquals(1, segs.size)
         assertTrue("seg ${segs[0]}", segs[0].durationMs in 119_000L..123_000L)
         assertTrue(state.notice!!.contains("low on storage"))
+    }
+
+    @Test fun fullNightAudioOnAPhoneWithoutAnEncoderIsSkippedWithANote() {
+        com.quietnight.app.audio.NightAudioPref.set(app, true)
+        RecordingEnv.audioSupported = { false }
+        stops += 90.0
+        startNight()
+        awaitNightEnd()
+        com.quietnight.app.audio.NightAudioPref.set(app, false)
+        val state = RecordingService.state.value
+        assertTrue(saved(state.finishedId).durationSec >= 89)
+        assertTrue(com.quietnight.app.audio.SegmentIndex.read(app.repository.clipDir(state.finishedId!!)).isEmpty())
+        assertTrue(state.notice!!.contains("Full-night audio"))
+    }
+
+    @Test fun audioLostToAnOverrunDoesNotShrinkTheNight() {
+        overrunAtSec = 100.0
+        snoring = { t -> t in 200.0..260.0 }
+        stops += 300.0
+        startNight()
+        awaitNightEnd()
+        val s = saved(RecordingService.state.value.finishedId)
+        // Without catching up the night would be ~8 s short and the snores ~8 s early.
+        assertTrue("duration ${s.durationSec}", s.durationSec in 297..302)
+        val b = s.levels.indices.filter { s.levels[it] > 0 }
+        assertTrue("buckets $b", b.isNotEmpty() && b.all { it in 19..27 })
+        assertTrue(s.gaps.isEmpty())
     }
 
     @Test fun lowBatteryStopsAndSavesWithANote() {

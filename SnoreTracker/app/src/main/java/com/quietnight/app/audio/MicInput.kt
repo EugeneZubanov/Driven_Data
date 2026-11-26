@@ -28,12 +28,15 @@ object RecordingEnv {
     @Volatile var wallMs: () -> Long = System::currentTimeMillis
     @Volatile var sleep: (Long) -> Unit = { Thread.sleep(it) }
     @Volatile var battery: (Context) -> Pair<Int?, Boolean> = RecordingService::readBattery
-    @Volatile var encoder: EncoderFactory = EncoderFactory { f, rate -> AacSegmentEncoder(f, rate) }
-    @Volatile var freeBytes: (java.io.File) -> Long = { it.usableSpace }
+    @Volatile var encoder: EncoderFactory = EncoderFactory { f, _ -> AacSegmentEncoder(f, AacSupport.find() ?: error("no AAC encoder")) }
+    @Volatile var freeBytes: (Context) -> Long = ::freeSpace
+    /** Whether this phone has an encoder for full-night audio. */
+    @Volatile var audioSupported: () -> Boolean = { AacSupport.find() != null }
 
     fun reset() {
-        encoder = EncoderFactory { f, rate -> AacSegmentEncoder(f, rate) }
-        freeBytes = { it.usableSpace }
+        encoder = EncoderFactory { f, _ -> AacSegmentEncoder(f, AacSupport.find() ?: error("no AAC encoder")) }
+        freeBytes = ::freeSpace
+        audioSupported = { AacSupport.find() != null }
         openMic = ::openAudioRecord
         elapsedMs = SystemClock::elapsedRealtime
         wallMs = System::currentTimeMillis
@@ -41,6 +44,15 @@ object RecordingEnv {
         battery = RecordingService::readBattery
     }
 }
+
+/**
+ * Bytes the app can still write to its own storage. StorageManager also counts cache the system
+ * would clear for us, which File.usableSpace does not.
+ */
+fun freeSpace(context: Context): Long = runCatching {
+    val sm = context.getSystemService(android.os.storage.StorageManager::class.java)
+    sm.getAllocatableBytes(sm.getUuidForPath(context.filesDir))
+}.getOrElse { context.filesDir.usableSpace }
 
 /** Capture rates to try, best first. Only 44.1 kHz is guaranteed on every Android device. */
 val CAPTURE_RATES = listOf(16000, 48000, 44100)

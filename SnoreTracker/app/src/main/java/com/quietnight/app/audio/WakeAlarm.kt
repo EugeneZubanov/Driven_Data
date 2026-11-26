@@ -9,6 +9,7 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
+import androidx.core.content.edit
 import com.quietnight.app.MainActivity
 import com.quietnight.app.R
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,8 +40,9 @@ object WakeAlarm {
 
     fun update(context: Context, s: WakeSetting) {
         _setting.value = s
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean("on", s.enabled).putInt("h", s.hour).putInt("m", s.minute).apply()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+            putBoolean("on", s.enabled).putInt("h", s.hour).putInt("m", s.minute)
+        }
     }
 
     /** Wall-clock time to stop at for a night starting at [nowMs], or 0 for none. */

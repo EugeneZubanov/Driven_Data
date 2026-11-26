@@ -167,6 +167,27 @@ class RecordingPolicyTest {
         assertFalse(RecordingPolicy.keepScreenOn(dimmed = true, dimmedForMs = 10 * 60_000L))
     }
 
+    @Test fun timesFollowThe12Or24HourSetting() {
+        val zone = java.time.ZoneId.of("Europe/London")
+        val ms = java.time.ZonedDateTime.of(2026, 11, 27, 23, 5, 0, 0, zone).toInstant().toEpochMilli()
+        val before = java.util.Locale.getDefault()
+        java.util.Locale.setDefault(java.util.Locale.UK)
+        try {
+            assertEquals("23:05", RecordingPolicy.clockText(ms, is24Hour = true, zone = zone))
+            assertEquals("11:05 pm", RecordingPolicy.clockText(ms, is24Hour = false, zone = zone).lowercase())
+            assertEquals("06:45", RecordingPolicy.timeOfDay(6, 45, is24Hour = true))
+            assertEquals("6:45 am", RecordingPolicy.timeOfDay(6, 45, is24Hour = false).lowercase())
+        } finally {
+            java.util.Locale.setDefault(before)
+        }
+    }
+
+    @Test fun catchUpOnlyBeyondNormalBufferingLag() {
+        assertEquals(0L, RecordingPolicy.catchUpMs(10_000, 9_000))
+        assertEquals(0L, RecordingPolicy.catchUpMs(10_000, 7_000))
+        assertEquals(7_000L, RecordingPolicy.catchUpMs(20_000, 12_000))
+    }
+
     @Test fun serviceLifecycle() {
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = false))
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = true))

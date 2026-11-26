@@ -71,6 +71,10 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import com.quietnight.app.audio.MicCheckState
+import android.text.format.DateFormat
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalContext
 import com.quietnight.app.audio.NightAudioWriter
 import com.quietnight.app.audio.RecordingPolicy
 import androidx.compose.foundation.layout.widthIn
@@ -117,12 +121,39 @@ fun RecordScreen(
     /** Keep the whole night's audio, not just the loudest clips. */
     fullAudio: Boolean = false,
     onFullAudio: (Boolean) -> Unit = {},
+    /** False when the phone has no suitable audio encoder; the full-audio row is then left out. */
+    fullAudioSupported: Boolean = true,
+    /** The phone's 12/24-hour setting; null reads it from the context. */
+    is24Hour: Boolean? = null,
+) {
+    val h24 = is24Hour ?: DateFormat.is24HourFormat(LocalContext.current)
+    CompositionLocalProvider(LocalIs24Hour provides h24) { RecordScreenBody(
+        prefs, rec, lastSession, onStart, onStop, onPrefs, onOpenSession, nowMs, batteryExempt, onFixBattery, startWarnings,
+        onDismissNotice, mic, onMicCheck, onDimmed, onKeepScreenOn, dimAfterMs, wake, onWake, onTestRun, manufacturer,
+        fullAudio && fullAudioSupported, onFullAudio, fullAudioSupported,
+    ) }
+}
+
+/** 12/24-hour setting for the times shown on the Record tab. */
+private val LocalIs24Hour = staticCompositionLocalOf { true }
+
+@Composable
+private fun timeText(ms: Long) = RecordingPolicy.clockText(ms, LocalIs24Hour.current)
+
+@Composable
+private fun RecordScreenBody(
+    prefs: Prefs, rec: RecState, lastSession: Session?, onStart: () -> Unit, onStop: () -> Unit,
+    onPrefs: ((Prefs) -> Prefs) -> Unit, onOpenSession: (String) -> Unit, nowMs: () -> Long, batteryExempt: Boolean,
+    onFixBattery: () -> Unit, startWarnings: () -> List<String>, onDismissNotice: () -> Unit, mic: MicCheckState,
+    onMicCheck: () -> Unit, onDimmed: (Boolean) -> Unit, onKeepScreenOn: (Boolean) -> Unit, dimAfterMs: Long,
+    wake: WakeSetting, onWake: (WakeSetting) -> Unit, onTestRun: () -> Unit, manufacturer: String,
+    fullAudio: Boolean, onFullAudio: (Boolean) -> Unit, fullAudioSupported: Boolean,
 ) {
     if (rec.recording) RecordingView(rec, onStop, nowMs, onDimmed, dimAfterMs, onKeepScreenOn)
     else IdleView(
         prefs, rec, lastSession, onStart, onPrefs, onOpenSession,
         batteryExempt, onFixBattery, startWarnings, onDismissNotice, mic, onMicCheck,
-        wake, onWake, onTestRun, manufacturer, fullAudio, onFullAudio,
+        wake, onWake, onTestRun, manufacturer, fullAudio, onFullAudio, fullAudioSupported,
     )
 }
 
@@ -147,6 +178,7 @@ private fun IdleView(
     manufacturer: String,
     fullAudio: Boolean,
     onFullAudio: (Boolean) -> Unit,
+    fullAudioSupported: Boolean,
 ) {
     var addKind by remember { mutableStateOf<String?>(null) }
     var oemHelp by remember { mutableStateOf(false) }
@@ -198,7 +230,7 @@ private fun IdleView(
         Spacer(Modifier.height(16.dp))
         TonightCard(
             prefs = prefs, onPrefs = onPrefs, wake = wake, onWake = onWake, mic = mic, onMicCheck = onMicCheck,
-            onAddTag = { addKind = it }, fullAudio = fullAudio, onFullAudio = onFullAudio,
+            onAddTag = { addKind = it }, fullAudio = fullAudio, onFullAudio = onFullAudio, fullAudioSupported = fullAudioSupported,
         )
 
         if (lastSession != null) {
@@ -396,7 +428,7 @@ private fun DimmedView(now: Long, elapsedSec: Int, rec: RecState) {
             Modifier.offset(x = 14.dp * ((step % 3) - 1), y = 24.dp * ((step / 3) * 2 - 1)),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(clock(now), fontSize = 56.sp, fontWeight = FontWeight.Light, color = Palette.Muted.copy(alpha = 0.45f))
+            Text(timeText(now), fontSize = 56.sp, fontWeight = FontWeight.Light, color = Palette.Muted.copy(alpha = 0.45f))
             Text(
                 if (rec.micPaused) "Paused · microphone in use" else "Recording · ${formatDuration(elapsedSec)}",
                 color = Palette.Muted.copy(alpha = 0.4f), style = MaterialTheme.typography.bodySmall,
@@ -419,9 +451,9 @@ private fun AwakeView(rec: RecState, now: Long, elapsed: Int, onStop: () -> Unit
     ) {
         Icon(Icons.Filled.Bedtime, null, tint = Palette.Moon.copy(alpha = 0.7f), modifier = Modifier.size(36.dp))
         Spacer(Modifier.height(16.dp))
-        Text(clock(now), fontSize = 64.sp, fontWeight = FontWeight.Light, color = Palette.Text.copy(alpha = 0.85f))
+        Text(timeText(now), fontSize = 64.sp, fontWeight = FontWeight.Light, color = Palette.Text.copy(alpha = 0.85f))
         Text(if (rec.testRun) "Test run · ${formatDuration(elapsed)} of 5m" else "Recording for ${formatDuration(elapsed)}", color = Palette.Muted)
-        if (rec.wakeAtMs > 0) Text("Wake-up at ${clock(rec.wakeAtMs)}", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
+        if (rec.wakeAtMs > 0) Text("Wake-up at ${timeText(rec.wakeAtMs)}", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(28.dp))
 
         if (rec.micPaused) {
@@ -542,7 +574,7 @@ private fun WakeCard(wake: WakeSetting, onWake: (WakeSetting) -> Unit, framed: B
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton({ picking = true }) {
-                        Text("%02d:%02d".format(wake.hour, wake.minute), fontSize = 22.sp, fontWeight = FontWeight.Medium)
+                        Text(RecordingPolicy.timeOfDay(wake.hour, wake.minute, LocalIs24Hour.current), fontSize = 22.sp, fontWeight = FontWeight.Medium)
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(
@@ -554,7 +586,7 @@ private fun WakeCard(wake: WakeSetting, onWake: (WakeSetting) -> Unit, framed: B
         }
     }
     if (picking) {
-        val state = rememberTimePickerState(wake.hour, wake.minute, is24Hour = true)
+        val state = rememberTimePickerState(wake.hour, wake.minute, is24Hour = LocalIs24Hour.current)
         AlertDialog(
             onDismissRequest = { picking = false },
             title = { Text("Wake-up time") },
@@ -593,6 +625,7 @@ private fun TonightCard(
     onAddTag: (String) -> Unit,
     fullAudio: Boolean = false,
     onFullAudio: (Boolean) -> Unit = {},
+    fullAudioSupported: Boolean = true,
 ) {
     var open by remember { mutableStateOf<String?>(null) }
     @Composable
@@ -633,7 +666,7 @@ private fun TonightCard(
                     }
                 }
             }
-            SettingRow("wake", "Wake-up alarm", if (wake.enabled) "%02d:%02d".format(wake.hour, wake.minute) else "Off") {
+            SettingRow("wake", "Wake-up alarm", if (wake.enabled) RecordingPolicy.timeOfDay(wake.hour, wake.minute, LocalIs24Hour.current) else "Off") {
                 WakeCard(wake, onWake, framed = false)
             }
             SettingRow("tags", "Factors and remedies", tagSummary(prefs.selectedTags)) {
@@ -663,7 +696,7 @@ private fun TonightCard(
                     Spacer(Modifier.height(10.dp))
                 }
             }
-            SettingRow("audio", "Full-night audio", if (fullAudio) "On" else "Off") {
+            if (fullAudioSupported) SettingRow("audio", "Full-night audio", if (fullAudio) "On" else "Off") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "Keep all of tonight's sound, not just the loudest clips. " +
