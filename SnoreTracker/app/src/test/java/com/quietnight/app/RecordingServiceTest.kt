@@ -209,6 +209,46 @@ class RecordingServiceTest {
         assertTrue(shadowOf(controller.get()).isStoppedBySelf)
     }
 
+    @Test fun activeIdIsExposedAndEditsDuringTheNightAreKept() {
+        stops += 400.0
+        startNight()
+        // Wait for the first periodic save (every 2 simulated minutes), then edit that night.
+        val deadline = System.currentTimeMillis() + 60_000
+        var id: String? = null
+        while (id == null || app.repository.sessions.value.none { it.id == id }) {
+            assertTrue(System.currentTimeMillis() < deadline)
+            id = RecordingService.state.value.activeSessionId
+            Thread.sleep(2)
+        }
+        val partial = app.repository.sessions.value.first { it.id == id }
+        app.repository.save(partial.withEdits(listOf("r:Nasal strip"), "Blocked nose tonight"))
+        awaitNightEnd()
+        val s = saved(id)
+        assertTrue(s.durationSec >= 399)
+        assertEquals(listOf("r:Nasal strip"), s.tags)
+        assertEquals("Blocked nose tonight", s.note)
+        assertNull(RecordingService.state.value.activeSessionId)
+    }
+
+    @Test fun recoveryWorksBeforeTheRepositoryHasLoaded() {
+        // The night's file is on disk but not in the in-memory list (loading happens in the background).
+        val start = wallBase - 7_200_000L
+        val partial = Session(
+            id = "s$start", startMs = start, endMs = start + 50 * 60_000L, bucketSec = 10,
+            levels = ByteArray(300), amps = ByteArray(300), tags = listOf("f:Alcohol"), clips = emptyList(),
+        )
+        java.io.File(app.filesDir, "sessions").mkdirs()
+        java.io.File(app.filesDir, "sessions/${partial.id}.json").writeText(partial.toJson().toString())
+        app.getSharedPreferences("recording", Context.MODE_PRIVATE).edit().putString("activeId", partial.id).commit()
+        assertTrue(app.repository.sessions.value.none { it.id == partial.id })
+
+        RecordingService.recoverInterrupted(app)
+        val back = Session.fromJson(org.json.JSONObject(java.io.File(app.filesDir, "sessions/${partial.id}.json").readText()))
+        assertEquals(partial.endMs, back.interruptedAtMs)
+        assertEquals(listOf("f:Alcohol"), back.tags)
+        assertNull(marker())
+    }
+
     @Test fun deniedMicrophoneDoesNotStartAndExplains() {
         shadowOf(app).denyPermissions(Manifest.permission.RECORD_AUDIO)
         RecordingService.start(app)

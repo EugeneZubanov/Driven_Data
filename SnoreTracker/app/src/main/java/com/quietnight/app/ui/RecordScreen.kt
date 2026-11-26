@@ -70,6 +70,11 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import com.quietnight.app.audio.MicCheckState
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.text.style.TextOverflow
 import com.quietnight.app.audio.WakeSetting
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Switch
@@ -145,13 +150,14 @@ private fun IdleView(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(Modifier.height(28.dp))
-        Icon(Icons.Filled.Bedtime, null, tint = Palette.Moon, modifier = Modifier.size(40.dp))
-        Spacer(Modifier.height(8.dp))
-        Text("Quiet Night", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
-        Text("Snore tracker", color = Palette.Muted, style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(20.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Bedtime, null, tint = Palette.Moon, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.width(10.dp))
+            Text("Quiet Night", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        }
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(24.dp))
         Box(
             Modifier.size(148.dp).clip(CircleShape).background(Palette.Moon).clickable(onClick = tryStart),
             contentAlignment = Alignment.Center,
@@ -180,62 +186,10 @@ private fun IdleView(
             BatteryCard(onFixBattery) { oemHelp = true }
         }
         Spacer(Modifier.height(16.dp))
-        MicCheckCard(mic, onMicCheck)
-        Spacer(Modifier.height(12.dp))
-        WakeCard(wake, onWake)
-
-        Spacer(Modifier.height(24.dp))
-        Card {
-            Column {
-                SectionTitle("Time to fall asleep")
-                Text(
-                    "Listening starts after this delay.",
-                    color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
-                )
-                Spacer(Modifier.height(8.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (m in listOf(0, 10, 20, 30, 45)) {
-                        FilterChip(
-                            selected = prefs.delayMin == m,
-                            onClick = { onPrefs { it.copy(delayMin = m) } },
-                            label = { Text(if (m == 0) "None" else "$m min") },
-                        )
-                    }
-                }
-            }
-        }
-
-        for ((kind, title, hint, builtIn) in listOf(
-            TagGroup("f", "Factors tonight", "Things that might make snoring worse.", Tags.factors),
-            TagGroup("r", "Remedies tonight", "Things you are trying to snore less.", Tags.remedies),
-        )) {
-            Spacer(Modifier.height(12.dp))
-            Card {
-                Column {
-                    SectionTitle(title)
-                    Text(hint, color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(8.dp))
-                    val all = builtIn.map { "$kind:$it" } + prefs.customTags.filter { it.startsWith("$kind:") }.sorted()
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        for (tag in all) {
-                            val on = tag in prefs.selectedTags
-                            FilterChip(
-                                selected = on,
-                                onClick = {
-                                    onPrefs { it.copy(selectedTags = if (on) it.selectedTags - tag else it.selectedTags + tag) }
-                                },
-                                label = { Text(Tags.label(tag)) },
-                            )
-                        }
-                        AssistChip(
-                            onClick = { addKind = kind },
-                            label = { Text("Add") },
-                            leadingIcon = { Icon(Icons.Filled.Add, null, Modifier.size(16.dp)) },
-                        )
-                    }
-                }
-            }
-        }
+        TonightCard(
+            prefs = prefs, onPrefs = onPrefs, wake = wake, onWake = onWake, mic = mic, onMicCheck = onMicCheck,
+            onAddTag = { addKind = it },
+        )
 
         if (lastSession != null) {
             Spacer(Modifier.height(12.dp))
@@ -326,6 +280,7 @@ private fun NoticeCard(text: String, onOpen: (() -> Unit)?, onDismiss: () -> Uni
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BatteryCard(onFix: () -> Unit, onHelp: () -> Unit) {
     Card {
@@ -341,7 +296,7 @@ private fun BatteryCard(onFix: () -> Unit, onHelp: () -> Unit) {
                     "Turn off battery optimisation for Quiet Night to prevent this.",
                 color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onHelp) { Text("Steps for my phone") }
                 TextButton(onFix) { Text("Open setting") }
             }
@@ -350,10 +305,10 @@ private fun BatteryCard(onFix: () -> Unit, onHelp: () -> Unit) {
 }
 
 @Composable
-private fun MicCheckCard(mic: MicCheckState, onCheck: () -> Unit) {
-    Card {
+private fun MicCheckCard(mic: MicCheckState, onCheck: () -> Unit, framed: Boolean = true) {
+    Frame(framed) {
         Column {
-            SectionTitle("Microphone check")
+            if (framed) SectionTitle("Microphone check")
             Text(
                 when {
                     mic.running && mic.heard -> "The phone hears you."
@@ -556,13 +511,13 @@ private fun HoldToStopButton(onStop: () -> Unit, onAccessibleStop: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WakeCard(wake: WakeSetting, onWake: (WakeSetting) -> Unit) {
+private fun WakeCard(wake: WakeSetting, onWake: (WakeSetting) -> Unit, framed: Boolean = true) {
     var picking by remember { mutableStateOf(false) }
-    Card {
+    Frame(framed) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    SectionTitle("Wake-up alarm")
+                    if (framed) SectionTitle("Wake-up alarm")
                     Text(
                         if (wake.enabled) "Stops recording and rings at this time." else "Off",
                         color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
@@ -594,5 +549,111 @@ private fun WakeCard(wake: WakeSetting, onWake: (WakeSetting) -> Unit) {
             confirmButton = { TextButton({ picking = false; onWake(wake.copy(hour = state.hour, minute = state.minute)) }) { Text("Set") } },
             dismissButton = { TextButton({ picking = false }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun Frame(framed: Boolean, content: @Composable () -> Unit) {
+    if (framed) Card { content() } else content()
+}
+
+/** Short summary of the chosen tags for a collapsed row. */
+internal fun tagSummary(selected: Set<String>, max: Int = 2): String {
+    if (selected.isEmpty()) return "None"
+    val names = selected.sortedWith(compareBy({ !Tags.isRemedy(it) }, { Tags.label(it) })).map(Tags::label)
+    return if (names.size <= max) names.joinToString(", ") else names.take(max).joinToString(", ") + " +${names.size - max}"
+}
+
+/**
+ * Everything to set up for tonight in one card: each row shows its current value and opens in
+ * place, so the first screenful stays Start plus anything that needs attention.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TonightCard(
+    prefs: Prefs,
+    onPrefs: ((Prefs) -> Prefs) -> Unit,
+    wake: WakeSetting,
+    onWake: (WakeSetting) -> Unit,
+    mic: MicCheckState,
+    onMicCheck: () -> Unit,
+    onAddTag: (String) -> Unit,
+) {
+    var open by remember { mutableStateOf<String?>(null) }
+    @Composable
+    fun SettingRow(key: String, label: String, value: String, content: @Composable () -> Unit) {
+        val expanded = open == key
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { open = if (expanded) null else key }
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, Modifier.weight(1f), fontWeight = FontWeight.Medium)
+            Text(
+                value, color = Palette.Muted, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.End,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 150.dp).padding(start = 12.dp),
+            )
+            Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = Palette.Muted, modifier = Modifier.padding(start = 4.dp))
+        }
+        if (expanded) {
+            Column(Modifier.padding(bottom = 12.dp)) { content() }
+        }
+        HorizontalDivider(color = Palette.Outline.copy(alpha = 0.5f))
+    }
+
+    Card {
+        Column {
+            SectionTitle("Tonight")
+            Spacer(Modifier.height(4.dp))
+            SettingRow("delay", "Fall-asleep delay", if (prefs.delayMin == 0) "None" else "${prefs.delayMin} min") {
+                Text("Listening starts after this delay.", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (m in listOf(0, 10, 20, 30, 45)) {
+                        FilterChip(
+                            selected = prefs.delayMin == m,
+                            onClick = { onPrefs { it.copy(delayMin = m) } },
+                            label = { Text(if (m == 0) "None" else "$m min") },
+                        )
+                    }
+                }
+            }
+            SettingRow("wake", "Wake-up alarm", if (wake.enabled) "%02d:%02d".format(wake.hour, wake.minute) else "Off") {
+                WakeCard(wake, onWake, framed = false)
+            }
+            SettingRow("tags", "Factors and remedies", tagSummary(prefs.selectedTags)) {
+                for ((kind, title, hint, builtIn) in listOf(
+                    TagGroup("f", "Factors", "Things that might make snoring worse.", Tags.factors),
+                    TagGroup("r", "Remedies", "Things you are trying to snore less.", Tags.remedies),
+                )) {
+                    Text(title, fontWeight = FontWeight.Medium)
+                    Text(hint, color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(6.dp))
+                    val all = builtIn.map { "$kind:$it" } + prefs.customTags.filter { it.startsWith("$kind:") }.sorted()
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (tag in all) {
+                            val on = tag in prefs.selectedTags
+                            FilterChip(
+                                selected = on,
+                                onClick = { onPrefs { it.copy(selectedTags = if (on) it.selectedTags - tag else it.selectedTags + tag) } },
+                                label = { Text(Tags.label(tag)) },
+                            )
+                        }
+                        AssistChip(
+                            onClick = { onAddTag(kind) },
+                            label = { Text("Add") },
+                            leadingIcon = { Icon(Icons.Filled.Add, null, Modifier.size(16.dp)) },
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+            }
+            SettingRow(
+                "mic", "Microphone check",
+                when { mic.running -> "Listening…"; mic.done && mic.heard -> "Heard you"; mic.done -> "Try again"; else -> "Not checked" },
+            ) {
+                MicCheckCard(mic, onMicCheck, framed = false)
+            }
+        }
     }
 }

@@ -23,6 +23,7 @@ import androidx.core.content.ContextCompat
 import com.quietnight.app.MainActivity
 import com.quietnight.app.QuietNightApp
 import com.quietnight.app.R
+import com.quietnight.app.data.Session
 import com.quietnight.app.ui.clock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -50,6 +51,11 @@ data class RecState(
     val testRun: Boolean = false,
     /** Wake-up time the night will stop at, or 0. */
     val wakeAtMs: Long = 0,
+    /**
+     * Id of the night being recorded (its periodic saves appear in the night list). Other screens
+     * should not offer delete for it; tag and note edits made meanwhile are kept by later saves.
+     */
+    val activeSessionId: String? = null,
 )
 
 /**
@@ -168,8 +174,15 @@ class RecordingService : Service() {
         var stopReason: RecordingPolicy.StopReason? = null
         var notified = ""
         fun offsetNow() = RecordingEnv.elapsedMs() - startElapsed
-        fun snapshot() = recorder!!.snapshot().withRecordingInfo(gaps = gaps.snapshot(offsetNow())).let {
-            if (testRun) it.withEdits(it.tags, TEST_RUN_NOTE) else it
+        fun snapshot(): Session {
+            val fresh = recorder!!.snapshot().withRecordingInfo(gaps = gaps.snapshot(offsetNow()))
+            // Keep tags or a note the user edited on a periodic save while the night went on.
+            val edited = app.repository.sessions.value.firstOrNull { it.id == id }
+            return when {
+                edited != null -> fresh.withEdits(edited.tags, edited.note)
+                testRun -> fresh.withEdits(fresh.tags, TEST_RUN_NOTE)
+                else -> fresh
+            }
         }
         fun notifyText(text: String) {
             if (text == notified) return
@@ -196,7 +209,12 @@ class RecordingService : Service() {
             active = true
             markRecording(this, id)
             starting = false
-            _state.value = RecState(recording = true, startMs = startMs, delayMs = delayMs, testRun = testRun, wakeAtMs = wakeAtMs)
+            _state.value = RecState(
+                recording = true, startMs = startMs, delayMs = delayMs, testRun = testRun, wakeAtMs = wakeAtMs, activeSessionId = id,
+            )
+            val power = getSystemService(POWER_SERVICE) as PowerManager
+            var screenOn = true
+            var lastUi = Long.MIN_VALUE / 2
 
             val buf = ShortArray(SAMPLE_RATE / 10)
             var lastSave = RecordingEnv.elapsedMs()
@@ -210,6 +228,7 @@ class RecordingService : Service() {
                 if (now - lastCheck >= 2_000) {
                     lastCheck = now
                     silenced = audio?.silenced() == true
+                    screenOn = runCatching { power.isInteractive }.getOrDefault(true)
                     val (pct, charging) = RecordingEnv.battery(this)
                     stopReason = RecordingPolicy.safetyStop(offsetNow(), pct, charging)
                         ?: RecordingPolicy.plannedStop(offsetNow(), RecordingEnv.wallMs(), testRunMs, wakeAtMs)
@@ -250,13 +269,17 @@ class RecordingService : Service() {
                     accountedMs += n * 1000L / SAMPLE_RATE
                 }
                 val paused = gaps.inGap
-                _state.value = _state.value.copy(
-                    listening = recorder.listening,
-                    dbAboveFloor = if (paused) 0f else recorder.currentDbAboveFloor,
-                    eventCount = recorder.eventCount,
-                    micPaused = paused,
-                    gapSec = gaps.snapshot(offsetNow()).sumOf { it.toSec - it.fromSec },
-                )
+                // Nobody sees the live meter with the screen off or dimmed; update far less often then.
+                if (paused != _state.value.micPaused || now - lastUi >= RecordingPolicy.uiUpdateEveryMs(screenOn, uiDimmed)) {
+                    lastUi = now
+                    _state.value = _state.value.copy(
+                        listening = recorder.listening,
+                        dbAboveFloor = if (paused) 0f else recorder.currentDbAboveFloor,
+                        eventCount = recorder.eventCount,
+                        micPaused = paused,
+                        gapSec = gaps.snapshot(offsetNow()).sumOf { it.toSec - it.fromSec },
+                    )
+                }
                 notifyText(
                     when {
                         paused -> "Microphone in use elsewhere. Will carry on when it is free."
@@ -361,6 +384,9 @@ class RecordingService : Service() {
         private val _state = MutableStateFlow(RecState())
         val state: StateFlow<RecState> = _state
 
+        /** Set by the Record tab while its night view is dimmed. */
+        @Volatile var uiDimmed = false
+
         /** True while a night is being recorded in this process (the microphone is taken). */
         val isRecording: Boolean get() = active || starting
 
@@ -408,6 +434,10 @@ class RecordingService : Service() {
             return pct to (i.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0)
         }
 
+        private fun readSavedNight(app: QuietNightApp, id: String): Session? = runCatching {
+            Session.fromJson(org.json.JSONObject(java.io.File(app.filesDir, "sessions/$id.json").readText()))
+        }.getOrNull()
+
         private fun markRecording(context: Context, id: String) {
             context.getSharedPreferences(MARK_PREFS, Context.MODE_PRIVATE).edit().putString(MARK_ID, id).commit()
         }
@@ -425,7 +455,10 @@ class RecordingService : Service() {
             val sp = app.getSharedPreferences(MARK_PREFS, Context.MODE_PRIVATE)
             val markerId = sp.getString(MARK_ID, null)
             if (markerId != null) app.repository.ensureLoaded() // need the saved nights to decide
-            val saved = markerId?.let { id -> app.repository.sessions.value.firstOrNull { it.id == id } }
+            // Read the file itself: the repository may still be loading its list in the background.
+            val saved = markerId?.let { id ->
+                app.repository.sessions.value.firstOrNull { it.id == id } ?: readSavedNight(app, id)
+            }
             val outcome = NightRecovery.check(markerId, saved, active) ?: return
             when (outcome) {
                 is NightRecovery.Outcome.Kept -> app.repository.save(outcome.session)

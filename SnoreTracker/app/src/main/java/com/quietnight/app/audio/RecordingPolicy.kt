@@ -29,6 +29,16 @@ object RecordingPolicy {
     /** How often progress is written to disk. */
     const val SAVE_EVERY_MS = 2 * 60_000L
 
+    /**
+     * How often the live level on screen is refreshed. Audio is read every 100 ms regardless;
+     * this only limits the UI state updates (and the recompositions they cause).
+     */
+    fun uiUpdateEveryMs(screenOn: Boolean, dimmed: Boolean): Long = when {
+        !screenOn -> 10_000L
+        dimmed -> 5_000L
+        else -> 200L
+    }
+
     /** Gaps without audio shorter than this are not listed on the night (the time still counts). */
     const val MIN_GAP_MS = 10_000L
 
