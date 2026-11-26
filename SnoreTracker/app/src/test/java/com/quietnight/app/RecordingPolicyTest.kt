@@ -182,6 +182,12 @@ class RecordingPolicyTest {
         }
     }
 
+    @Test fun catchUpOnlyBeyondNormalBufferingLag() {
+        assertEquals(0L, RecordingPolicy.catchUpMs(10_000, 9_000))
+        assertEquals(0L, RecordingPolicy.catchUpMs(10_000, 7_000))
+        assertEquals(7_000L, RecordingPolicy.catchUpMs(20_000, 12_000))
+    }
+
     @Test fun serviceLifecycle() {
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = false))
         assertEquals(ServiceLifecycle.OnStart.LAUNCH, ServiceLifecycle.onStart(workerAlive = false, workerStopping = true))

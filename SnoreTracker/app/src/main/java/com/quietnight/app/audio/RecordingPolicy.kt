@@ -55,6 +55,19 @@ object RecordingPolicy {
         WAKE_TIME("Good morning. Recording stopped at your wake-up time and the night was saved."),
     }
 
+    /**
+     * How far the night's timeline may fall behind the wall clock (audio lost to a stall or an
+     * overrun) before the missing time is added back as quiet. Some lag is normal: the
+     * microphone's own buffer holds up to a second of audio not yet read.
+     */
+    const val MAX_LAG_MS = 3_000L
+
+    /** Milliseconds to add to the timeline now, or 0. Leaves a second of normal buffering lag in place. */
+    fun catchUpMs(wallOffsetMs: Long, timelineMs: Long): Long {
+        val behind = wallOffsetMs - timelineMs
+        return if (behind > MAX_LAG_MS) behind - 1_000L else 0L
+    }
+
     /** A time of day as the phone shows it: "23:05" with the 24-hour setting, "11:05 PM" without. */
     fun clockText(ms: Long, is24Hour: Boolean, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): String =
         timeOfDay(java.time.Instant.ofEpochMilli(ms).atZone(zone).toLocalTime(), is24Hour)

@@ -48,6 +48,7 @@ class RecordingServiceTest {
 
     /** Capture rates the simulated phone supports, and every rate list the service asked for. */
     private var supportedRates = listOf(16000)
+    private var overrunAtSec: Double? = null
     private val requested = java.util.Collections.synchronizedList(ArrayList<List<Int>>())
 
     private inner class FakeMic(override val sampleRate: Int) : MicInput {
@@ -58,6 +59,11 @@ class RecordingServiceTest {
                 controller.get().onStartCommand(Intent(app, RecordingService::class.java).setAction("com.quietnight.app.STOP"), 0, 99)
             }
             if (t in takenSec) return -3 // AudioRecord.ERROR_INVALID_OPERATION
+            if (overrunAtSec != null && t >= overrunAtSec!!) {
+                // The app fell behind and the microphone's buffer overflowed: 8 s of audio never arrive.
+                overrunAtSec = null
+                clockMs.addAndGet(8_000)
+            }
             val chunk = TestAudio.chunk(t, size, rnd, snoring, sampleRate)
             chunk.copyInto(buf)
             clockMs.addAndGet(size * 1000L / sampleRate)
@@ -210,6 +216,20 @@ class RecordingServiceTest {
         assertTrue(saved(state.finishedId).durationSec >= 89)
         assertTrue(com.quietnight.app.audio.SegmentIndex.read(app.repository.clipDir(state.finishedId!!)).isEmpty())
         assertTrue(state.notice!!.contains("Full-night audio"))
+    }
+
+    @Test fun audioLostToAnOverrunDoesNotShrinkTheNight() {
+        overrunAtSec = 100.0
+        snoring = { t -> t in 200.0..260.0 }
+        stops += 300.0
+        startNight()
+        awaitNightEnd()
+        val s = saved(RecordingService.state.value.finishedId)
+        // Without catching up the night would be ~8 s short and the snores ~8 s early.
+        assertTrue("duration ${s.durationSec}", s.durationSec in 297..302)
+        val b = s.levels.indices.filter { s.levels[it] > 0 }
+        assertTrue("buckets $b", b.isNotEmpty() && b.all { it in 19..27 })
+        assertTrue(s.gaps.isEmpty())
     }
 
     @Test fun lowBatteryStopsAndSavesWithANote() {

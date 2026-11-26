@@ -245,6 +245,11 @@ class RecordingService : Service() {
                     stopReason = RecordingPolicy.safetyStop(offsetNow(), pct, charging)
                         ?: RecordingPolicy.plannedStop(offsetNow(), RecordingEnv.wallMs(), testRunMs, wakeAtMs)
                     if (stopReason != null) stopRequested = true
+                    // Audio lost without a gap (a stall or overrun) must not shrink the night.
+                    if (!gaps.inGap) {
+                        val catchUp = RecordingPolicy.catchUpMs(offsetNow(), accountedMs)
+                        if (catchUp > 0) { recorder?.skip(catchUp); accountedMs += catchUp; audioWriter?.gap() }
+                    }
                     audioWriter?.let { w ->
                         if (w.failed) { audioNote = AUDIO_FAILED; audioWriter = null }
                         else if (RecordingEnv.freeBytes(this) < NightAudioWriter.MIN_FREE_BYTES) {

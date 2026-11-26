@@ -296,7 +296,9 @@ class AacSegmentEncoder(file: File, private val choice: AacSupport.Choice) : Seg
             val idx = codec.dequeueInputBuffer(10_000)
             if (idx < 0) {
                 drain(endOfStream = false)
-                check(++waits < 200) { "encoder stalled" }
+                // Runs on the audio thread: never block it for long, or the microphone overruns.
+                // After ~200 ms without a free buffer, give up (full audio turns off for the night).
+                check(++waits < 20) { "encoder stalled" }
                 continue
             }
             val buf = codec.getInputBuffer(idx)!!
@@ -320,7 +322,7 @@ class AacSegmentEncoder(file: File, private val choice: AacSupport.Choice) : Seg
             // queued after all data; the codec then flushes its last frames and marks the last
             // output buffer with the same flag.
             var idx = -1
-            for (i in 0 until 100) {
+            for (i in 0 until 20) {
                 idx = codec.dequeueInputBuffer(10_000)
                 if (idx >= 0) break
                 drain(endOfStream = false)
@@ -342,7 +344,7 @@ class AacSegmentEncoder(file: File, private val choice: AacSupport.Choice) : Seg
 
     /**
      * Takes every output buffer the codec has ready. With [endOfStream] it waits (10 ms at a time,
-     * at most ~3 s) until the buffer flagged END_OF_STREAM arrives; otherwise it returns as soon as
+     * at most ~0.5 s) until the buffer flagged END_OF_STREAM arrives; otherwise it returns as soon as
      * nothing is ready.
      */
     private fun drain(endOfStream: Boolean) {
@@ -351,7 +353,9 @@ class AacSegmentEncoder(file: File, private val choice: AacSupport.Choice) : Seg
             val out = codec.dequeueOutputBuffer(info, if (endOfStream) 10_000 else 0)
             when {
                 // Nothing ready: done for now, or keep waiting for the end-of-stream buffer.
-                out == MediaCodec.INFO_TRY_AGAIN_LATER -> if (!endOfStream || ++waits > 300) return
+                // (Bounded to ~0.5 s: if the last frames never come, the file is still closed with
+                // what was written, which keeps it playable.)
+                out == MediaCodec.INFO_TRY_AGAIN_LATER -> if (!endOfStream || ++waits > 50) return
                 // Sent once, before the first encoded frame: the output format now carries the
                 // codec-specific data (csd-0), which the muxer needs to add the track. The muxer can
                 // only be started after its track is added, and nothing may be written before that.
