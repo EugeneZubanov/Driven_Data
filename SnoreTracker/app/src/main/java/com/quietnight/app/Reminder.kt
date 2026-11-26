@@ -25,6 +25,20 @@ object Reminder {
     private const val NOTIFICATION_ID = 2
     const val ACTION_FIRE = "com.quietnight.app.REMINDER"
 
+    /** Extra on the intent that opens [MainActivity]: the tab to show (0 = Record). */
+    const val EXTRA_OPEN_TAB = "com.quietnight.app.OPEN_TAB"
+    const val TAB_RECORD = 0
+
+    /** The tab an incoming intent asks for, or null if it asks for none. */
+    fun requestedTab(intent: Intent?): Int? =
+        intent?.takeIf { it.hasExtra(EXTRA_OPEN_TAB) }?.getIntExtra(EXTRA_OPEN_TAB, -1)?.takeIf { it in 0..3 }
+
+    /** Intent that opens the app on the Record tab. */
+    fun openRecordIntent(context: Context): Intent =
+        Intent(context, MainActivity::class.java)
+            .putExtra(EXTRA_OPEN_TAB, TAB_RECORD)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+
     private fun alarmIntent(context: Context): PendingIntent = PendingIntent.getBroadcast(
         context, 0,
         Intent(context, ReminderReceiver::class.java).setAction(ACTION_FIRE),
@@ -51,9 +65,10 @@ object Reminder {
         if (!canNotify(context)) return
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Bedtime reminder", NotificationManager.IMPORTANCE_DEFAULT))
+        // Own request code so this never overwrites another notification's PendingIntent to MainActivity.
         val open = PendingIntent.getActivity(
-            context, 0,
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            context, NOTIFICATION_ID,
+            openRecordIntent(context),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val n = NotificationCompat.Builder(context, CHANNEL_ID)
