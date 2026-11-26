@@ -35,7 +35,40 @@ class ClipPlayer {
     var failed by mutableStateOf<String?>(null)
         private set
 
+    /** Play the next clip when one finishes. */
+    var autoAdvance by mutableStateOf(false)
+
     private var player: MediaPlayer? = null
+    private var queue: List<Pair<String, File>> = emptyList()
+    /** Clip that was playing most recently, so next/previous work after it stops. */
+    var current by mutableStateOf<String?>(null)
+        private set
+
+    /** The night's clips in order, for next/previous and auto-advance. */
+    fun setQueue(clips: List<Pair<String, File>>) {
+        queue = clips
+    }
+
+    /** Plays the last clip played, or the first one. */
+    fun playCurrent() {
+        val c = queue.firstOrNull { it.first == current } ?: queue.firstOrNull() ?: return
+        play(c.first, c.second)
+    }
+
+    fun next() = step(+1)
+    fun previous() = step(-1)
+
+    private fun step(by: Int) {
+        if (queue.isEmpty()) return
+        val i = queue.indexOfFirst { it.first == (playing ?: current) }
+        val j = if (i < 0) 0 else i + by
+        if (j in queue.indices) play(queue[j].first, queue[j].second)
+    }
+
+    private fun finished() {
+        val i = queue.indexOfFirst { it.first == playing }
+        if (autoAdvance && i >= 0 && i + 1 < queue.size) play(queue[i + 1].first, queue[i + 1].second) else stop()
+    }
 
     fun toggle(name: String, file: File) {
         if (playing == name) stop() else play(name, file)
@@ -44,11 +77,12 @@ class ClipPlayer {
     fun play(name: String, file: File) {
         stop()
         failed = null
+        current = name
         if (!file.isFile) { failed = name; return }
         val p = MediaPlayer()
         try {
             p.setDataSource(file.path)
-            p.setOnCompletionListener { if (player === it) stop() }
+            p.setOnCompletionListener { if (player === it) finished() }
             p.setOnErrorListener { mp, _, _ -> if (player === mp) { stop(); failed = name }; true }
             p.prepare() // local 10 s WAV: quick enough to prepare synchronously
             p.start()
@@ -83,6 +117,7 @@ class ClipPlayer {
     @VisibleForTesting
     fun showForPreview(name: String?, progress: Float) {
         playing = name
+        current = name
         this.progress = progress
     }
 }

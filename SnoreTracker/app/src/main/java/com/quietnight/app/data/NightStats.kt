@@ -8,7 +8,11 @@ import java.util.TimeZone
 import kotlin.math.roundToInt
 
 /** Timeline columns for one window of a night: strongest level per column and its loudness. */
-class Columns(val levels: IntArray, val amps: IntArray, val firstCovered: Int, val lastCovered: Int)
+class Columns(val levels: IntArray, val amps: IntArray, val firstCovered: Int, val lastCovered: Int) {
+    /** Columns where every bucket had no audio. */
+    var gaps: BooleanArray = BooleanArray(levels.size)
+        internal set
+}
 
 /** A run of time within a night, as seconds from its start. */
 data class Stretch(val startSec: Int, val lengthSec: Int)
@@ -38,17 +42,47 @@ object NightStats {
         val to = ((winEndMs - session.startMs + bucketMs - 1) / bucketMs).coerceIn(0, n.toLong()).toInt()
         var first = Int.MAX_VALUE
         var last = -1
+        val heard = BooleanArray(count)
+        val any = BooleanArray(count)
+        val mask = session.gapMask
         for (b in from until to) {
             val t = session.startMs + b * bucketMs
             if (t < winStartMs || t >= winEndMs || t >= endMs) continue
             val c = ((t - winStartMs) * count / span).toInt().coerceIn(0, count - 1)
             if (c < first) first = c
             if (c > last) last = c
+            any[c] = true
+            if (!mask[b]) heard[c] = true
             val l = session.levels[b].toInt().coerceIn(0, 3)
             val a = session.amps[b].toInt()
             if (l > lv[c] || (l == lv[c] && a > amp[c])) { lv[c] = l; amp[c] = a }
         }
-        return Columns(lv, amp, if (last < 0) 0 else first, last)
+        return Columns(lv, amp, if (last < 0) 0 else first, last).also { cols ->
+            cols.gaps = BooleanArray(count) { any[it] && !heard[it] }
+        }
+    }
+
+    /** Minutes after 18:00 on the evening a night began, so nights can share one clock axis. */
+    fun eveningMinutes(ms: Long, tz: TimeZone = TimeZone.getDefault()): Int {
+        val cal = Calendar.getInstance(tz).apply { timeInMillis = ms }
+        val m = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+        return if (m >= 18 * 60) m - 18 * 60 else m + 6 * 60
+    }
+
+    /**
+     * Shared window for comparing nights by clock time: for each night, the ms window that covers
+     * the same evening-relative span (earliest start to latest end across all of them).
+     */
+    fun sharedWindows(nights: List<Session>, tz: TimeZone = TimeZone.getDefault()): List<Pair<Long, Long>> {
+        if (nights.isEmpty()) return emptyList()
+        val starts = nights.map { eveningMinutes(it.startMs, tz) }
+        val from = starts.min()
+        val to = nights.indices.maxOf { starts[it] + ((nights[it].endMs - nights[it].startMs + 59_999) / 60_000).toInt() }
+        return nights.mapIndexed { i, n ->
+            // 18:00 on this night's evening, to the minute.
+            val zero = n.startMs - n.startMs % 60_000L - starts[i] * 60_000L
+            (zero + from * 60_000L) to (zero + to * 60_000L)
+        }
     }
 
     /** Average score of up to [window] nights that started before [session]; null with fewer than [minNights]. */
@@ -66,7 +100,7 @@ object NightStats {
     fun longestQuiet(session: Session): Stretch? {
         var best = -1; var bestLen = 0; var run = 0
         for (i in session.levels.indices) {
-            if (session.levels[i].toInt() == Level.QUIET) {
+            if (session.levels[i].toInt() == Level.QUIET && !session.gapMask[i]) {
                 run++
                 if (run > bestLen) { bestLen = run; best = i - run + 1 }
             } else run = 0
@@ -131,6 +165,13 @@ object NightStats {
     /** Tags used on any of the nights, factors first, then by name. */
     fun usedTags(sessions: List<Session>): List<String> =
         sessions.flatMap { it.tags }.distinct().sortedWith(compareBy({ Tags.isRemedy(it) }, { Tags.label(it).lowercase() }))
+
+    /** Nights whose note or tag names contain [query], ignoring case. A blank query keeps all. */
+    fun search(sessions: List<Session>, query: String): List<Session> {
+        val q = query.trim()
+        if (q.isEmpty()) return sessions
+        return sessions.filter { s -> s.note.contains(q, ignoreCase = true) || s.tags.any { Tags.label(it).contains(q, ignoreCase = true) } }
+    }
 
     fun filterByTag(sessions: List<Session>, tag: String?): List<Session> =
         if (tag == null) sessions else sessions.filter { tag in it.tags }

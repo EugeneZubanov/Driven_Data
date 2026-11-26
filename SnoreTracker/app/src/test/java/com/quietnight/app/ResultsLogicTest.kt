@@ -2,9 +2,11 @@ package com.quietnight.app
 
 import com.quietnight.app.data.Clip
 import com.quietnight.app.data.Comparison
+import com.quietnight.app.data.Gap
 import com.quietnight.app.data.NightStats
 import com.quietnight.app.data.Session
 import com.quietnight.app.data.SessionRepository
+import com.quietnight.app.data.Stretch
 import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -122,6 +124,17 @@ class ResultsLogicTest {
         assertEquals(0, NightStats.averageScore(emptyList()))
     }
 
+    @Test fun searchMatchesNotesAndTagNames() {
+        val a = night("1", "a", tags = listOf("f:Alcohol")).withEdits(listOf("f:Alcohol"), "Dinner out, late night")
+        val b = night("1", "b").withEdits(emptyList(), "Cold, blocked nose")
+        val all = listOf(a, b)
+        assertEquals(listOf(a), NightStats.search(all, "dinner"))
+        assertEquals(listOf(a), NightStats.search(all, "ALCO"))
+        assertEquals(listOf(b), NightStats.search(all, " blocked "))
+        assertEquals(all, NightStats.search(all, "  "))
+        assertTrue(NightStats.search(all, "zzz").isEmpty())
+    }
+
     @Test fun shareTextHasTheEssentials() {
         val s = night("....222222....", tags = listOf("f:Alcohol", "r:Nasal strip")).withEdits(listOf("f:Alcohol", "r:Nasal strip"), "Slept late ")
         val text = NightStats.shareText(s, listOf(s), utc, Locale.US)
@@ -178,6 +191,58 @@ class ResultsLogicTest {
         assertTrue(repo.restore("b"))
     }
 
+    private fun withGaps(s: Session, vararg gaps: Gap) =
+        Session(s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags, s.clips, demo = s.demo, gaps = gaps.toList())
+
+    @Test fun gapsAreLeftOutOfTheScore() {
+        val plain = night("2222......") // 4 of 10 minutes loud
+        val gapped = withGaps(plain, Gap(300, 600)) // last 5 minutes had no audio
+        assertEquals(40, plain.score)
+        assertEquals(300, gapped.gapSec)
+        assertEquals(300, gapped.listenedSec)
+        assertEquals(80, gapped.score) // 4 of 5 listened minutes
+        assertEquals(0.8f, gapped.snoringFraction, 1e-4f)
+        assertEquals(60, gapped.secondsByLevel[0]) // only the heard quiet minute
+        // No gaps: identical to before.
+        assertEquals(0, plain.gapSec)
+        assertEquals(600, plain.listenedSec)
+    }
+
+    @Test fun gapMaskUsesBucketMiddles() {
+        val s = withGaps(night("......"), Gap(70, 150)) // buckets 1 (mid 90) and 2 (mid 150 excluded)
+        assertArrayEquals(booleanArrayOf(false, true, false, false, false, false), s.gapMask)
+        val all = withGaps(night("11"), Gap(0, 120))
+        assertEquals(0, all.score)
+        assertEquals(0f, all.snoringFraction)
+    }
+
+    @Test fun gapsBreakQuietStretchesAndMarkColumns() {
+        val s = withGaps(night("..........1"), Gap(240, 600)) // minutes 4-9 had no audio
+        assertEquals(Stretch(0, 240), NightStats.longestQuiet(s))
+        val c = NightStats.columns(s, s.startMs, s.startMs + 660_000, 11)
+        assertArrayEquals(BooleanArray(11) { it in 4..9 }, c.gaps)
+    }
+
+    @Test fun gapsRoundTripAndScoreSurvives() {
+        val s = withGaps(night("2222......"), Gap(300, 600))
+        val back = Session.fromJson(JSONObject(s.toJson().toString()))
+        assertEquals(s.gaps, back.gaps)
+        assertEquals(s.score, back.score)
+    }
+
+    @Test fun sharedWindowsAlignNightsByClockTime() {
+        val a = night("1".repeat(60), "a", start = t0) // Thu 23:30 for 1 h
+        val b = night("1".repeat(30), "b", start = t0 - 86_400_000L + 3_600_000L) // Wed 00:30 for 30 min
+        assertEquals(330, NightStats.eveningMinutes(t0, utc))
+        assertEquals(390, NightStats.eveningMinutes(b.startMs, utc))
+        val (wa, wb) = NightStats.sharedWindows(listOf(a, b), utc)
+        // Both span 23:30 to 01:00 on their own evening.
+        assertEquals(t0, wa.first)
+        assertEquals(t0 + 90 * 60_000L, wa.second)
+        assertEquals(b.startMs - 3_600_000L, wb.first)
+        assertEquals(wb.first + 90 * 60_000L, wb.second)
+    }
+
     @Test fun clipPlayerReportsMissingFileWithoutPlaying() {
         val p = com.quietnight.app.ui.ClipPlayer()
         p.play("c1.wav", File(tmp.root, "missing.wav"))
@@ -186,6 +251,20 @@ class ResultsLogicTest {
         p.stop(); p.stop() // safe to call twice
         assertNull(p.playing)
         assertEquals(0f, p.progress)
+    }
+
+    @Test fun clipPlayerStepsThroughQueue() {
+        val p = com.quietnight.app.ui.ClipPlayer()
+        val files = listOf("a.wav", "b.wav", "c.wav").map { it to File(tmp.root, it) } // missing: no audio needed
+        p.setQueue(files)
+        p.next()
+        assertEquals("a.wav", p.current)
+        p.next(); p.next(); p.next() // stops at the end
+        assertEquals("c.wav", p.current)
+        p.previous()
+        assertEquals("b.wav", p.current)
+        p.playCurrent()
+        assertEquals("b.wav", p.current)
     }
 
     @Test fun editedSessionReplacesOnSave() {

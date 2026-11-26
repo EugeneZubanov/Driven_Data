@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -71,6 +72,7 @@ private fun AppRoot(app: QuietNightApp) {
     val weightStore = remember { WeightStore.get(context.filesDir) }
     val weight by weightStore.log.collectAsStateWithLifecycle()
     var detailId by rememberSaveable { mutableStateOf<String?>(null) }
+    var deletedNotice by remember { mutableStateOf<com.quietnight.app.data.Session?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         // start() explains on the Record tab if the microphone was refused.
@@ -141,7 +143,7 @@ private fun AppRoot(app: QuietNightApp) {
                         onBack = { detailId = null },
                         onOlder = sessions.getOrNull(index + 1)?.let { s -> { detailId = s.id } },
                         onNewer = sessions.getOrNull(index - 1)?.let { s -> { detailId = s.id } },
-                        onDelete = { detailId = null; app.repository.delete(detail.id) },
+                        onDelete = { deletedNotice = detail; detailId = null; app.repository.trash(detail.id) },
                         clipFile = { app.repository.clipFile(detail.id, it) },
                         history = sessions,
                         onSave = app.repository::save,
@@ -160,6 +162,8 @@ private fun AppRoot(app: QuietNightApp) {
                     sessions,
                     onDelete = app.repository::trash,
                     onUndoDelete = { app.repository.restore(it) },
+                    deletedNotice = deletedNotice,
+                    onDeletedNoticeShown = { deletedNotice = null },
                 ) { detailId = it }
                 tab == 2 -> TrendsScreen(sessions, onOpenNight = { tab = 1; detailId = it }, weight = weight, onWeight = weightStore::update)
                 else -> {
