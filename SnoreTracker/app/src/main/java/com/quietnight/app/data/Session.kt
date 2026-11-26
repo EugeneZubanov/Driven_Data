@@ -14,9 +14,23 @@ object Level {
 
     val names = listOf("Quiet", "Mild", "Loud", "Heavy")
 
+    /*
+     * All detection thresholds live here, in dB above the night's quiet reference: the lowest
+     * noise floor that held for a whole minute (see SnoreEvent.dbAboveFloor). The phone's
+     * microphone is not calibrated, so these are relative levels, not sound pressure.
+     */
+    /** Snoring at least this far above the quiet reference is Loud; below it, Mild. */
+    const val LOUD_DB = 18f
+    /** Snoring at least this far above the quiet reference is Heavy. */
+    const val HEAVY_DB = 28f
+    /** How far above the current noise floor a sound must rise to count, by sensitivity 0 low, 1 normal, 2 high. */
+    val SENSITIVITY_DB = floatArrayOf(11f, 8f, 5.5f)
+
+    fun thresholdDb(sensitivity: Int): Float = SENSITIVITY_DB[sensitivity.coerceIn(0, SENSITIVITY_DB.size - 1)]
+
     fun fromDb(dbAboveFloor: Float): Int = when {
-        dbAboveFloor >= 28f -> HEAVY
-        dbAboveFloor >= 18f -> LOUD
+        dbAboveFloor >= HEAVY_DB -> HEAVY
+        dbAboveFloor >= LOUD_DB -> LOUD
         else -> MILD
     }
 }

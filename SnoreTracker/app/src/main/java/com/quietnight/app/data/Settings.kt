@@ -21,7 +21,7 @@ data class Prefs(
     /** Delete clips and whole-night audio of nights older than this many days; 0 = keep. */
     val clipCleanupDays: Int = 0,
 ) {
-    val thresholdDb: Float get() = when (sensitivity) { 0 -> 11f; 2 -> 5.5f; else -> 8f }
+    val thresholdDb: Float get() = Level.thresholdDb(sensitivity)
 }
 
 class Settings(context: Context) {
