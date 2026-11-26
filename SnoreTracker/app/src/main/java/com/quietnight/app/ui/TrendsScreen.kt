@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quietnight.app.data.Period
 import com.quietnight.app.data.Session
-import com.quietnight.app.data.Tags
 import com.quietnight.app.data.TrendBar
 import com.quietnight.app.data.Trends
 import kotlin.math.abs
@@ -46,17 +45,17 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TrendsScreen(sessions: List<Session>) {
+fun TrendsScreen(sessions: List<Session>, onOpenNight: (String) -> Unit = {}) {
     if (sessions.isEmpty()) {
         EmptyState("No trends yet", "Trends appear once you have recorded a few nights.")
         return
     }
     var period by remember { mutableStateOf(Period.DAYS) }
     val bars = remember(sessions, period) {
-        Trends.bars(sessions, period, when (period) { Period.DAYS -> 10; Period.WEEKS -> 8; Period.MONTHS -> 6 })
+        Trends.bars(sessions, period, when (period) { Period.DAYS -> 14; Period.WEEKS -> 8; Period.MONTHS -> 6 })
     }
     var selectedKey by remember(period) { mutableStateOf<Long?>(null) }
-    val selected = bars.indexOfFirst { it.key == selectedKey }.let { if (it < 0) bars.lastIndex else it }
+    val selected = bars.indexOfFirst { it.key == selectedKey && !it.isEmpty }.let { if (it < 0) bars.lastIndex else it }
     val average = sessions.map { it.score }.average().toFloat()
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
@@ -76,7 +75,7 @@ fun TrendsScreen(sessions: List<Session>) {
         }
 
         Spacer(Modifier.height(16.dp))
-        TrendChart(bars, selected, average) { selectedKey = bars[it].key }
+        TrendChart(bars, selected, average) { if (!bars[it].isEmpty) selectedKey = bars[it].key }
         Spacer(Modifier.height(8.dp))
         LevelLegend()
         Spacer(Modifier.height(6.dp))
@@ -90,14 +89,16 @@ fun TrendsScreen(sessions: List<Session>) {
                     SectionTitle(bar.longLabel)
                     val n = bar.sessions.size
                     Text("$n ${if (n == 1) "night" else "nights"} recorded", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
-                    if (selected > 0) {
-                        val change = bar.score - bars[selected - 1].score
+                    val prev = (selected - 1 downTo 0).firstOrNull { !bars[it].isEmpty }
+                    if (prev != null) {
+                        val change = bar.score - bars[prev].score
+                        val than = if (prev == selected - 1) "the ${period.unit} before" else "the last ${period.unit} recorded"
                         Spacer(Modifier.height(6.dp))
                         Text(
                             when {
-                                change == 0 -> "Same as the ${period.unit} before"
-                                change < 0 -> "▼ ${-change} lower than the ${period.unit} before"
-                                else -> "▲ $change higher than the ${period.unit} before"
+                                change == 0 -> "Same as $than"
+                                change < 0 -> "▼ ${-change} lower than $than"
+                                else -> "▲ $change higher than $than"
                             },
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -108,40 +109,14 @@ fun TrendsScreen(sessions: List<Session>) {
             }
         }
 
-        val effects = remember(sessions) { Trends.tagEffects(sessions) }
-        if (effects.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
-            Card {
-                Column {
-                    SectionTitle("What seems to matter")
-                    Text(
-                        "Average score on nights with each factor or remedy, compared with nights without it.",
-                        color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    for (e in effects) {
-                        val d = e.delta.roundToInt()
-                        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(Tags.label(e.tag), fontWeight = FontWeight.Medium)
-                                Text(
-                                    "${e.nights} ${if (e.nights == 1) "night" else "nights"} · avg ${e.withAvg.roundToInt()} vs ${e.withoutAvg.roundToInt()}",
-                                    color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            Text(
-                                if (d == 0) "no change" else if (d < 0) "▼ ${abs(d)} quieter" else "▲ $d louder",
-                                fontWeight = FontWeight.Medium,
-                            )
-                        }
-                    }
-                    Text(
-                        "With only a few nights these differences can be chance.",
-                        color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-        }
+        Spacer(Modifier.height(12.dp))
+        NightCalendar(sessions, onOpenNight)
+        Spacer(Modifier.height(12.dp))
+        HourlyCard(sessions)
+        Spacer(Modifier.height(12.dp))
+        PatternsCard(sessions, onOpenNight)
+        Spacer(Modifier.height(12.dp))
+        TagEffectsCard(sessions)
         Spacer(Modifier.height(24.dp))
     }
 }
@@ -203,12 +178,16 @@ private fun TrendChart(bars: List<TrendBar>, selected: Int, average: Float, onSe
                 }
                 acc += v
             }
-            if (acc == 0f) drawRect(Palette.Quiet, Offset(cx - barW / 2, y(0f) - 2.dp.toPx()), Size(barW, 2.dp.toPx()))
+            if (bar.isEmpty) drawCircle(Palette.Outline, 2.dp.toPx(), Offset(cx, y(0f) - 4.dp.toPx()))
+            else if (acc == 0f) drawRect(Palette.Quiet, Offset(cx - barW / 2, y(0f) - 2.dp.toPx()), Size(barW, 2.dp.toPx()))
 
             // value on the selected bar only; x label on a readable subset
             if (i == selected) {
                 val l = measurer.measure(bar.score.toString(), TextStyle(color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold))
-                drawText(l, topLeft = Offset(cx - l.size.width / 2, y(acc) - l.size.height - 2.dp.toPx()))
+                // Sit above the average line when the two would touch, so the dash never crosses the number.
+                val near = abs(y(acc) - y(average)) < l.size.height + 2.dp.toPx()
+                val base = if (near) minOf(y(acc), y(average)) else y(acc)
+                drawText(l, topLeft = Offset(cx - l.size.width / 2, base - l.size.height - 2.dp.toPx()))
             }
             val every = ceil(bars.size / 5f).toInt().coerceAtLeast(1)
             if (i == selected || (i % every == 0 && abs(i - selected) >= every)) {
