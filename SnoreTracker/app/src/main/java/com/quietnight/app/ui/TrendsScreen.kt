@@ -39,13 +39,19 @@ import com.quietnight.app.data.Period
 import com.quietnight.app.data.Session
 import com.quietnight.app.data.TrendBar
 import com.quietnight.app.data.Trends
+import com.quietnight.app.data.WeightLog
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TrendsScreen(sessions: List<Session>, onOpenNight: (String) -> Unit = {}) {
+fun TrendsScreen(
+    sessions: List<Session>,
+    onOpenNight: (String) -> Unit = {},
+    weight: WeightLog? = null,
+    onWeight: (((WeightLog) -> WeightLog) -> Unit)? = null,
+) {
     if (sessions.isEmpty()) {
         EmptyState("No trends yet", "Trends appear once you have recorded a few nights.")
         return
@@ -117,6 +123,10 @@ fun TrendsScreen(sessions: List<Session>, onOpenNight: (String) -> Unit = {}) {
         PatternsCard(sessions, onOpenNight)
         Spacer(Modifier.height(12.dp))
         TagEffectsCard(sessions)
+        if (weight != null && onWeight != null) {
+            Spacer(Modifier.height(12.dp))
+            WeightCard(sessions, weight, onWeight)
+        }
         Spacer(Modifier.height(24.dp))
     }
 }

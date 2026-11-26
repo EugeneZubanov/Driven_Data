@@ -14,6 +14,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.unit.dp
 import com.quietnight.app.ui.NightCalendar
+import com.quietnight.app.ui.IntroScreen
+import com.quietnight.app.ui.WeightCard
+import com.quietnight.app.data.WeightEntry
+import com.quietnight.app.data.WeightLog
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.quietnight.app.audio.RecState
 import com.quietnight.app.data.DemoData
@@ -93,6 +97,30 @@ class ScreenshotTest {
         shot("trends-weeks") { TrendsScreen(sessions) }
         compose.onNodeWithText("Weeks").performClick()
         compose.onRoot().captureRoboImage("build/shots/trends-weeks.png")
+    }
+
+    @Test fun intro1() = shot("intro-1") { IntroScreen({}) }
+    @Test fun intro3() = shot("intro-3") { IntroScreen({}, startPage = 2) }
+
+    @Test @Config(qualifiers = "w411dp-h2000dp-xhdpi")
+    fun settingsReminderWeight() {
+        val log = WeightLog(listOf(WeightEntry(now - 86_400_000L, 82.3f)), pounds = false)
+        shot("settings-reminder") {
+            SettingsScreen(
+                Prefs(reminderOn = true), false, true, {}, {}, {}, {}, {}, {}, {}, "Restoring… 40 files read", dataBusy = true,
+                onShowIntro = {}, onReminder = { _, _ -> }, weight = log, onWeight = {},
+            )
+        }
+    }
+
+    @Test fun weightCard() = shot("weight") {
+        val day = 86_400_000L
+        val log = WeightLog((0 until 12).map { WeightEntry(now - (80 - it * 7) * day, 84f - it * 0.35f + (it % 3) * 0.2f) })
+        Column(Modifier.padding(20.dp)) {
+            WeightCard(sessions, log, {}, todayMs = now)
+            androidx.compose.foundation.layout.Spacer(Modifier.padding(6.dp))
+            WeightCard(sessions, WeightLog(), {}, todayMs = now)
+        }
     }
 
     @Test fun calendar() = shot("calendar") {
