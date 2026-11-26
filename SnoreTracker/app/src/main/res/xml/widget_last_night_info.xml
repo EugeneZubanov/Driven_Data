@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- previewLayout and targetCell* are used from Android 12; older launchers use minWidth/minHeight. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="UnusedAttribute"
+    android:description="@string/widget_description"
+    android:initialLayout="@layout/widget_last_night"
+    android:minWidth="180dp"
+    android:minHeight="40dp"
+    android:previewLayout="@layout/widget_last_night"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="3"
+    android:targetCellHeight="1"
+    android:updatePeriodMillis="86400000"
+    android:widgetCategory="home_screen" />

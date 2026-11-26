@@ -36,6 +36,19 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- Home-screen widget: last night's score. -->
+        <receiver
+            android:name=".LastNightWidget"
+            android:exported="false"
+            android:label="Last night">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_last_night_info" />
+        </receiver>
+
         <!-- Bedtime reminder: fired by our own alarm; re-armed after boot, app update and clock changes. -->
         <receiver
             android:name=".ReminderReceiver"
