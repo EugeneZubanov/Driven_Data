@@ -243,7 +243,7 @@ private fun timelineDescription(session: Session): String = buildString {
     if (session.otherSec > 0) append(" Talking or other sounds ${formatDuration(session.otherSec)}.")
     if (session.interruptedAtMs > 0) append(" Cut short at ${clock(session.interruptedAtMs)}.")
     NightStats.loudestHour(session)?.let { append(" Loudest hour from ${clock(it)}.") }
-    if (session.clips.isNotEmpty()) append(" ${session.clips.size} saved clips, listed below.")
+    if (session.visibleClips.isNotEmpty()) append(" ${session.visibleClips.size} saved clips, listed below.")
 }
 
 /**
@@ -275,14 +275,14 @@ fun TimelineChart(
     val measurer = rememberTextMeasurer()
     val description = remember(session) { timelineDescription(session) }
     val clips = remember(session, winStart, winEnd) {
-        session.clips.filter { session.startMs + it.offsetSec * 1000L in winStart until winEnd }
+        session.visibleClips.filter { session.startMs + it.offsetSec * 1000L in winStart until winEnd }
     }
     val currentOnClipTap by rememberUpdatedState(onClipTap)
     val currentOnLongPress by rememberUpdatedState(onLongPressBucket)
     val currentOnPlotTap by rememberUpdatedState(onPlotTap)
     // Keep the playing clip on screen: if it is outside the zoomed hour, move to its hour.
     LaunchedEffect(playingClip) {
-        val clip = session.clips.firstOrNull { it.file == playingClip } ?: return@LaunchedEffect
+        val clip = session.visibleClips.firstOrNull { it.file == playingClip } ?: return@LaunchedEffect
         val z = zoom ?: return@LaunchedEffect
         val t = session.startMs + clip.offsetSec * 1000L
         if (t !in z until z + HOUR_MS) zoom = hours.lastOrNull { it <= t } ?: z
@@ -340,7 +340,7 @@ fun TimelineChart(
                     ) { change, _ -> touchX = change.position.x }
                 }
                 .drawWithCache {
-                    val band = if (session.clips.isNotEmpty()) 22.dp.toPx() else 0f
+                    val band = if (session.visibleClips.isNotEmpty()) 22.dp.toPx() else 0f
                     val axisH = 20.dp.toPx()
                     val plotTop = band
                     val plotH = size.height - axisH - band
@@ -388,13 +388,7 @@ fun TimelineChart(
                             val l = cols.levels[c]
                             if (cols.gaps[c]) continue
                             val bw = (w - 2f).coerceAtLeast(1f) // 2px gap between neighbouring bars
-                            if (l == 0) {
-                                // detected, then marked not snoring by the user: neutral
-                                if (cols.corrected[c] == 0) continue
-                                val h = base + (plotH - base) * ampFraction(cols.corrected[c])
-                                drawRoundRect(NotSnoringColor, Offset(c * w, plotBottom - h), Size(bw, h), CornerRadius(bw / 2.5f))
-                                continue
-                            }
+                            if (l == 0) continue // quiet, including stretches marked not snoring: removed from the timeline
                             val h = base + (plotH - base) * ampFraction(cols.amps[c])
                             drawRoundRect(Palette.levels[l], Offset(c * w, plotBottom - h), Size(bw, h), CornerRadius(bw / 2.5f))
                         }
@@ -431,8 +425,7 @@ fun TimelineChart(
                         for (clip in clips) {
                             val x = xOf(session.startMs + clip.offsetSec * 1000L + CLIP_MS / 2)
                             val isPlaying = clip.file == playingClip
-                            val corrected = session.notSnoringMask.getOrElse(clip.offsetSec / session.bucketSec) { false }
-                            val color = if (corrected) NotSnoringColor else Palette.levels[clip.level.coerceIn(1, 3)]
+                            val color = Palette.levels[clip.level.coerceIn(1, 3)]
                             if (isPlaying) drawCircle(Palette.Moon, tri * 1.25f, Offset(x, band / 2), style = Stroke(1.5.dp.toPx()))
                             val path = Path().apply {
                                 moveTo(x - tri / 1.4f, band / 2 - tri / 2)
@@ -469,7 +462,6 @@ fun TimelineChart(
                             drawLine(Palette.Text.copy(alpha = 0.7f), Offset(x, plotTop), Offset(x, plotBottom), 1.5f)
                             val what = when {
                                 cols.gaps[c] -> "No sound"
-                                cols.levels[c] == 0 && cols.corrected[c] > 0 -> "Not snoring"
                                 cols.levels[c] == 0 && cols.others[c] -> "Other sound"
                                 else -> Level.names[cols.levels[c]]
                             }

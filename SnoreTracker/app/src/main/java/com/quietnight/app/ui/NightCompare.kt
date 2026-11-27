@@ -57,8 +57,8 @@ private fun day(ms: Long) = SimpleDateFormat("EEE d MMM", Locale.getDefault()).f
 /** Previous / play / next for the night's clips, plus an auto-play switch. */
 @Composable
 fun ClipControls(session: Session, player: ClipPlayer) {
-    val index = session.clips.indexOfFirst { it.file == (player.playing ?: player.current) }
-    val shown = session.clips.getOrNull(index)
+    val index = session.visibleClips.indexOfFirst { it.file == (player.playing ?: player.current) }
+    val shown = session.visibleClips.getOrNull(index)
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton({ player.previous() }, enabled = index > 0) { Icon(Icons.Filled.SkipPrevious, "Previous clip") }
@@ -70,10 +70,10 @@ fun ClipControls(session: Session, player: ClipPlayer) {
                     if (player.playing != null) "Stop clip" else "Play clip",
                 )
             }
-            IconButton({ player.next() }, enabled = index < session.clips.size - 1) { Icon(Icons.Filled.SkipNext, "Next clip") }
+            IconButton({ player.next() }, enabled = index < session.visibleClips.size - 1) { Icon(Icons.Filled.SkipNext, "Next clip") }
             Spacer(Modifier.width(8.dp))
             Text(
-                if (shown == null) "${session.clips.size} clips" else "Clip ${index + 1} of ${session.clips.size} · ${clock(session.startMs + shown.offsetSec * 1000L)}",
+                if (shown == null) "${session.visibleClips.size} clips" else "Clip ${index + 1} of ${session.visibleClips.size} · ${clock(session.startMs + shown.offsetSec * 1000L)}",
                 style = MaterialTheme.typography.bodySmall, color = Palette.Muted,
             )
         }

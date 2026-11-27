@@ -329,6 +329,19 @@ class ResultsLogicTest {
         assertEquals(3, cols.levels[8])
     }
 
+    @Test fun clipsInsideAMarkedStretchAreHiddenAndComeBackOnUndo() {
+        val s = night("..2222..33..")
+        val withClips = Session(
+            s.id, s.startMs, s.endMs, s.bucketSec, s.levels, s.amps, s.tags,
+            listOf(Clip(150, "a.wav", 2, 20), Clip(500, "b.wav", 3, 30)),
+        )
+        assertEquals(listOf("a.wav", "b.wav"), withClips.visibleClips.map { it.file })
+        val marked = withClips.withNotSnoring(listOf(Span(120, 360)))
+        assertEquals(listOf("b.wav"), marked.visibleClips.map { it.file })
+        assertEquals(2, marked.clips.size) // the file is kept for undo
+        assertEquals(listOf("a.wav", "b.wav"), marked.withNotSnoring(emptyList()).visibleClips.map { it.file })
+    }
+
     @Test fun notSnoringRoundTripsAndOldFilesLoad() {
         val s = night("2222").withNotSnoring(listOf(Span(0, 60), Span(120, 180))).withEdits(listOf("f:Alcohol"), "n")
         val back = Session.fromJson(JSONObject(s.toJson().toString()))

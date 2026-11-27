@@ -355,11 +355,16 @@ fun SessionDetailScreen(
     LaunchedEffect(nightAudio?.playing) { if (nightAudio?.playing == true) player.stop() }
     val canEdit = onSave != null && !recordingInProgress
     var selection by remember(session.id) { mutableStateOf<Span?>(null) }
-    val markNotSnoring: (Span) -> Unit = { span -> onSave?.invoke(session.withNotSnoring(session.notSnoring + span)) }
+    val markNotSnoring: (Span) -> Unit = { span ->
+        // A clip in the marked stretch disappears from the list, so stop it if it is playing.
+        val playingClip = session.clips.firstOrNull { it.file == player.playing }
+        if (playingClip != null && playingClip.offsetSec < span.toSec && playingClip.offsetSec + session.bucketSec > span.fromSec) player.stop()
+        onSave?.invoke(session.withNotSnoring(session.notSnoring + span))
+    }
     val unmark: (Span) -> Unit = { span ->
         onSave?.invoke(session.withNotSnoring(session.notSnoring.filterNot { it.fromSec < span.toSec && it.toSec > span.fromSec }))
     }
-    player.setQueue(session.clips.map { it.file to clipFile(it.file) })
+    player.setQueue(session.visibleClips.map { it.file to clipFile(it.file) })
     var editing by remember(session.id) { mutableStateOf(false) }
     var picking by remember(session.id) { mutableStateOf(false) }
     var compareId by rememberSaveable(session.id) { mutableStateOf(initialCompareId) }
@@ -496,10 +501,10 @@ fun SessionDetailScreen(
             if (session.notSnoring.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(NotSnoringColor))
-                    Spacer(Modifier.width(6.dp))
+                    val hidden = session.clips.size - session.visibleClips.size
                     Text(
-                        "Marked not snoring · ${formatDuration(session.correctedSec)}",
+                        "Removed as not snoring · ${formatDuration(session.correctedSec)}" +
+                            if (hidden > 0) " · $hidden ${if (hidden == 1) "clip" else "clips"} hidden" else "",
                         Modifier.weight(1f), color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
                     )
                     if (canEdit) {
@@ -513,7 +518,7 @@ fun SessionDetailScreen(
                     color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
                 )
             }
-            if (session.clips.isNotEmpty()) {
+            if (session.visibleClips.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("▼", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
@@ -582,7 +587,7 @@ fun SessionDetailScreen(
                 }
             }
 
-            if (session.clips.isNotEmpty()) {
+            if (session.visibleClips.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 ClipList(
                     session, player, clipFile, clipBytes,
@@ -723,7 +728,7 @@ private fun ClipList(
             Text("Ten-second clips of the strongest snoring.", color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(4.dp))
             ClipControls(session, player)
-            for (clip in session.clips) {
+            for (clip in session.visibleClips) {
                 val isPlaying = player.playing == clip.file
                 val at = clock(session.startMs + clip.offsetSec * 1000L)
                 val bucket = clip.offsetSec / session.bucketSec

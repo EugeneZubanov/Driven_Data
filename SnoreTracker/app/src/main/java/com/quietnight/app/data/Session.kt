@@ -105,6 +105,12 @@ class Session(
     /** Seconds with talking or other sounds and no snoring, outside gaps. */
     val otherSec: Int by lazy { levels.indices.count { hasOther(it) && !gapMask[it] && effectiveLevel(it) == Level.QUIET } * bucketSec }
 
+    /**
+     * Clips still shown: a clip inside a stretch marked not snoring is hidden (its file is kept,
+     * so undoing the mark brings it back).
+     */
+    val visibleClips: List<Clip> by lazy { clips.filterNot { notSnoringMask.getOrElse(it.offsetSec / bucketSec) { false } } }
+
     /** Seconds that were detected as snoring but marked not snoring. */
     val correctedSec: Int by lazy {
         levels.indices.count { notSnoringMask[it] && !gapMask[it] && levels[it] > 0 } * bucketSec
