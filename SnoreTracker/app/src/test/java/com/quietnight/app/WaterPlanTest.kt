@@ -93,6 +93,32 @@ class WaterPlanTest {
         assertEquals(at(22), end) // midnight minus 2 h
     }
 
+    @Test fun bottleCountsSuggestedSipsUntilFinished() {
+        val now = at(12)
+        val store = WaterStore(ApplicationProvider.getApplicationContext(), clock = { now })
+        store.add(250)
+        store.openBottle(1500)
+        store.noteBottleSips(300); store.noteBottleSips(300)
+        assertEquals(850, store.today.value.totalMl) // 250 logged + 600 estimated
+        assertTrue(store.today.value.isEstimate)
+        repeat(10) { store.noteBottleSips(300) }
+        assertEquals(250 + 1500, store.today.value.totalMl) // never more than the bottle
+        store.finishBottle()
+        assertEquals(listOf(250, 1500), store.today.value.drinks) // the real amount replaces the estimate
+        assertEquals(false, store.today.value.bottleOpen)
+        assertEquals(false, store.today.value.isEstimate)
+    }
+
+    @Test fun bottlePutAwayCountsWhatWasDrunk() {
+        val now = at(12)
+        val store = WaterStore(ApplicationProvider.getApplicationContext(), clock = { now })
+        store.openBottle(1500)
+        store.noteBottleSips(1200)
+        store.putBottleAway(0.5f)
+        assertEquals(750, store.today.value.totalMl)
+        assertEquals(false, store.today.value.bottleOpen)
+    }
+
     @Test fun storeResetsAtMidnightAndUndoes() {
         var now = at(12)
         val store = WaterStore(ApplicationProvider.getApplicationContext(), clock = { now })

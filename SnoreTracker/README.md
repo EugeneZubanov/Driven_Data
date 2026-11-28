@@ -88,6 +88,11 @@ active), your glass size, when you get up and go to bed, and how long before bed
   clear; drinking faster than the kidneys can clear risks low blood sodium (hyponatremia). If the
   target cannot be reached under that cap, the app says so, aims for what can be reached, and
   suggests starting earlier tomorrow. Missing the target on one day is fine.
+- **Bottle mode**: for a bottle you sip from over several hours (1.5 L by default), tap *Started a
+  bottle*. Reminders then ask for a few sips and count them as an estimate, never more than the
+  bottle, so the plan doesn't think you are behind. Mark *Finished the bottle* (in the app or on the
+  notification) and the whole bottle is logged instead of the estimate; *Put it away* asks roughly
+  how much is left. A bottle still open at midnight is closed without guessing.
 - **No reminders in the last 1–3 hours before bed** (2 h by default), the usual advice for fewer
   night-time toilet trips, and none while a night is being recorded.
 - General guidance, not medical advice: anyone told by a doctor to limit fluids should follow that.

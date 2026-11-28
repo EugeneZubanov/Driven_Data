@@ -483,9 +483,12 @@ class ScreenshotTest {
     @Test fun waterToday() = shot("water-today") {
         val day = java.util.Calendar.getInstance().apply { set(2026, 10, 28, 16, 0, 0) }.timeInMillis
         androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) {
-            com.quietnight.app.ui.WaterTodayCard(com.quietnight.app.data.WaterSettings(on = true), 250, day, true, true, {}, {})
+            com.quietnight.app.ui.WaterTodayCard(com.quietnight.app.data.WaterSettings(on = true), com.quietnight.app.data.WaterStore.Today("d", listOf(250)), day, true, {}, {})
             androidx.compose.foundation.layout.Spacer(Modifier.padding(6.dp))
-            com.quietnight.app.ui.WaterTodayCard(com.quietnight.app.data.WaterSettings(on = true), 0, day + 2 * 3_600_000L, true, false, {}, {})
+            com.quietnight.app.ui.WaterTodayCard(com.quietnight.app.data.WaterSettings(on = true), com.quietnight.app.data.WaterStore.Today("d", emptyList()), day + 2 * 3_600_000L, true, {}, {})
+            androidx.compose.foundation.layout.Spacer(Modifier.padding(6.dp))
+            // A 1.5 L bottle on the go, with two reminders' worth of sips counted as an estimate.
+            com.quietnight.app.ui.WaterTodayCard(com.quietnight.app.data.WaterSettings(on = true), com.quietnight.app.data.WaterStore.Today("d", listOf(250), bottleMl = 1500, bottleEstimateMl = 500), day - 3 * 3_600_000L, true, {}, {})
         }
     }
 

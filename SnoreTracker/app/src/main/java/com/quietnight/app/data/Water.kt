@@ -18,6 +18,8 @@ data class WaterSettings(
     /** No reminders this long before bed, so the night is not broken by trips to the toilet. */
     val stopBeforeBedMin: Int = 120,
     val glassMl: Int = 250,
+    /** Size of the bottle the user sometimes drinks from over several hours. */
+    val bottleSizeMl: Int = 1500,
 )
 
 /**
@@ -113,7 +115,7 @@ object WaterPlan {
         State.AFTER_CUTOFF ->
             "It's close to bedtime, so no more reminders today; just sip if you're thirsty. " +
                 "Tomorrow, try to drink more in the first half of the day."
-        State.ON_TRACK -> "On track. About ${st.perHourMl} ml an hour until ${clock(st.cutoffMs)} gets you there."
+        State.ON_TRACK -> "On track. About ${pace(st.perHourMl)} ml an hour until ${clock(st.cutoffMs)} gets you there."
         State.BEHIND ->
             "A little behind, so the rest is spread out: about ${pace(st.perHourMl)} ml an hour until ${clock(st.cutoffMs)}. " +
                 "No need to drink it all at once."
@@ -155,7 +157,19 @@ object WaterPlan {
 class WaterStore(context: Context, private val clock: () -> Long = System::currentTimeMillis) {
     private val sp = context.getSharedPreferences("water", Context.MODE_PRIVATE)
 
-    data class Today(val day: String, val drinks: List<Int>) { val totalMl: Int get() = drinks.sum() }
+    /**
+     * Today's logged drinks, plus an open bottle if any. While a bottle is open its intake is unknown,
+     * so the sips the reminders suggested count as an estimate (never more than the bottle) until the
+     * bottle is marked finished or put away, when the real amount replaces the estimate.
+     */
+    data class Today(val day: String, val drinks: List<Int>, val bottleMl: Int = 0, val bottleEstimateMl: Int = 0) {
+        val bottleOpen: Boolean get() = bottleMl > 0
+        /** Estimated intake from the open bottle so far. */
+        val bottleSoFarMl: Int get() = if (bottleOpen) minOf(bottleEstimateMl, bottleMl) else 0
+        /** What the plan works from: logged drinks plus the open bottle's estimate. */
+        val totalMl: Int get() = drinks.sum() + bottleSoFarMl
+        val isEstimate: Boolean get() = bottleSoFarMl > 0
+    }
 
     private val _settings = MutableStateFlow(readSettings())
     val settings: StateFlow<WaterSettings> = _settings
@@ -169,13 +183,15 @@ class WaterStore(context: Context, private val clock: () -> Long = System::curre
         bedMinute = sp.getInt("bedMinute", 23 * 60),
         stopBeforeBedMin = sp.getInt("stopBeforeBedMin", 120),
         glassMl = sp.getInt("glassMl", 250),
+        bottleSizeMl = sp.getInt("bottleSizeMl", 1500),
     )
 
     private fun readToday(): Today {
         val key = WaterPlan.dayKey(clock())
+        // A new day starts empty; a bottle left open overnight is closed without logging a guess.
         if (sp.getString("day", null) != key) return Today(key, emptyList())
         val drinks = sp.getString("drinks", "").orEmpty().split(',').mapNotNull { it.toIntOrNull() }
-        return Today(key, drinks)
+        return Today(key, drinks, sp.getInt("bottleMl", 0), sp.getInt("bottleEstimateMl", 0))
     }
 
     /** Re-reads today's total, e.g. after midnight or after a drink logged from the notification. */
@@ -185,13 +201,14 @@ class WaterStore(context: Context, private val clock: () -> Long = System::curre
         val s = transform(_settings.value)
         _settings.value = s
         sp.edit().putBoolean("on", s.on).putInt("targetMl", s.targetMl).putInt("wakeMinute", s.wakeMinute)
-            .putInt("bedMinute", s.bedMinute).putInt("stopBeforeBedMin", s.stopBeforeBedMin).putInt("glassMl", s.glassMl).apply()
+            .putInt("bedMinute", s.bedMinute).putInt("stopBeforeBedMin", s.stopBeforeBedMin).putInt("glassMl", s.glassMl)
+            .putInt("bottleSizeMl", s.bottleSizeMl).apply()
     }
 
     @Synchronized
     fun add(ml: Int) {
         val t = readToday()
-        save(t.copy(drinks = t.drinks + ml.coerceIn(1, 2000)))
+        save(t.copy(drinks = t.drinks + ml.coerceIn(1, 5000)))
     }
 
     @Synchronized
@@ -200,9 +217,39 @@ class WaterStore(context: Context, private val clock: () -> Long = System::curre
         if (t.drinks.isNotEmpty()) save(t.copy(drinks = t.drinks.dropLast(1)))
     }
 
+    @Synchronized
+    fun openBottle(sizeMl: Int) {
+        val t = readToday()
+        save(t.copy(bottleMl = sizeMl.coerceIn(100, 5000), bottleEstimateMl = 0))
+    }
+
+    /** A reminder suggested [ml] from the open bottle: counted as an estimate until the bottle is closed. */
+    @Synchronized
+    fun noteBottleSips(ml: Int) {
+        val t = readToday()
+        if (t.bottleOpen) save(t.copy(bottleEstimateMl = minOf(t.bottleMl, t.bottleEstimateMl + ml.coerceAtLeast(0))))
+    }
+
+    /** The bottle is empty: log all of it, replacing the estimate. */
+    @Synchronized
+    fun finishBottle() {
+        val t = readToday()
+        if (t.bottleOpen) save(Today(t.day, t.drinks + t.bottleMl))
+    }
+
+    /** Stopped before the end: log the part drunk ([drunkFraction] of the bottle), replacing the estimate. */
+    @Synchronized
+    fun putBottleAway(drunkFraction: Float) {
+        val t = readToday()
+        if (!t.bottleOpen) return
+        val ml = (t.bottleMl * drunkFraction.coerceIn(0f, 1f)).toInt()
+        save(Today(t.day, if (ml > 0) t.drinks + ml else t.drinks))
+    }
+
     private fun save(t: Today) {
-        // commit: the notification action may log a drink from a short-lived receiver.
-        sp.edit().putString("day", t.day).putString("drinks", t.drinks.joinToString(",")).commit()
+        // commit: the notification actions may log from a short-lived receiver.
+        sp.edit().putString("day", t.day).putString("drinks", t.drinks.joinToString(","))
+            .putInt("bottleMl", t.bottleMl).putInt("bottleEstimateMl", t.bottleEstimateMl).commit()
         _today.value = t
     }
 }

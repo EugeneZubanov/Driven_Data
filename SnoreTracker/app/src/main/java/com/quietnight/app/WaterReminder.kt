@@ -24,6 +24,7 @@ object WaterReminder {
     private const val NOTIFICATION_ID = 7
     const val ACTION_FIRE = "com.quietnight.app.WATER"
     const val ACTION_DRANK = "com.quietnight.app.WATER_DRANK"
+    const val ACTION_BOTTLE_DONE = "com.quietnight.app.WATER_BOTTLE_DONE"
     const val EXTRA_ML = "ml"
 
     private fun app(context: Context) = context.applicationContext as QuietNightApp
@@ -60,6 +61,9 @@ object WaterReminder {
         if (st.state == WaterPlan.State.DONE || st.state == WaterPlan.State.AFTER_CUTOFF) return
         // The drink suggested now: what the plan wants for the coming interval, rounded like a glass.
         val amount = st.nextAmountMl.takeIf { it > 0 } ?: minOf(s.glassMl, st.remainingMl).coerceAtLeast(100)
+        val bottle = water.today.value.bottleOpen
+        // With a bottle open the real amount is unknown: count the suggested sips as an estimate.
+        if (bottle) water.noteBottleSips(amount)
         val is24 = DateFormat.is24HourFormat(context)
         val text = WaterPlan.message(st) { RecordingPolicy.clockText(it, is24) }
 
@@ -69,18 +73,19 @@ object WaterReminder {
             context, 8, Reminder.openRecordIntent(context),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val drank = PendingIntent.getBroadcast(
-            context, 9,
-            Intent(context, WaterReceiver::class.java).setAction(ACTION_DRANK).putExtra(EXTRA_ML, amount),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val action = if (bottle) Intent(context, WaterReceiver::class.java).setAction(ACTION_BOTTLE_DONE)
+        else Intent(context, WaterReceiver::class.java).setAction(ACTION_DRANK).putExtra(EXTRA_ML, amount)
+        val drank = PendingIntent.getBroadcast(context, 9, action, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val soFar = "${if (water.today.value.isEstimate) "About " else ""}${WaterPlan.liters(water.today.value.totalMl)} of ${WaterPlan.liters(st.targetMl)} so far today"
         val n = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_moon)
-            .setContentTitle("Time for water: about $amount ml")
-            .setContentText("${WaterPlan.liters(st.drankMl)} of ${WaterPlan.liters(st.targetMl)} so far today")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("${WaterPlan.liters(st.drankMl)} of ${WaterPlan.liters(st.targetMl)} so far today. $text"))
+            .setContentTitle(if (bottle) "A few sips from your bottle: about $amount ml" else "Time for water: about $amount ml")
+            .setContentText(soFar)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(
+                if (bottle) "$soFar. Tap Finished when the bottle is empty." else "$soFar. $text",
+            ))
             .setContentIntent(open)
-            .addAction(0, "Drank $amount ml", drank)
+            .addAction(0, if (bottle) "Finished the bottle" else "Drank $amount ml", drank)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .build()
@@ -99,6 +104,11 @@ class WaterReceiver : BroadcastReceiver() {
         when (intent.action) {
             WaterReminder.ACTION_FIRE -> {
                 WaterReminder.show(context)
+                WaterReminder.sync(context)
+            }
+            WaterReminder.ACTION_BOTTLE_DONE -> {
+                (context.applicationContext as QuietNightApp).water.finishBottle()
+                WaterReminder.dismiss(context)
                 WaterReminder.sync(context)
             }
             WaterReminder.ACTION_DRANK -> {

@@ -47,6 +47,7 @@ import com.quietnight.app.WaterReminder
 import com.quietnight.app.data.ReminderTime
 import com.quietnight.app.data.WaterPlan
 import com.quietnight.app.data.WaterSettings
+import com.quietnight.app.data.WaterStore
 import kotlinx.coroutines.delay
 
 /** "Water today" on the Record tab, wired to the app's water store. Shows nothing while reminders are off. */
@@ -61,26 +62,32 @@ fun WaterToday(app: QuietNightApp) {
     LaunchedEffect(Unit) { while (true) { delay(60_000); now = System.currentTimeMillis(); app.water.refresh() } }
     if (!settings.on) return
     Spacer(Modifier.height(12.dp))
+    val changed = { WaterReminder.dismiss(context); WaterReminder.sync(context) }
     WaterTodayCard(
-        settings, today.totalMl, now, rememberIs24Hour(), canUndo = today.drinks.isNotEmpty(),
-        onAdd = { app.water.add(it); WaterReminder.dismiss(context); WaterReminder.sync(context) },
+        settings, today, now, rememberIs24Hour(),
+        onAdd = { app.water.add(it); changed() },
         onUndo = { app.water.undo(); WaterReminder.sync(context) },
+        onOpenBottle = { app.water.openBottle(settings.bottleSizeMl); WaterReminder.sync(context) },
+        onFinishBottle = { app.water.finishBottle(); changed() },
+        onPutBottleAway = { app.water.putBottleAway(it); changed() },
     )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WaterTodayCard(
-    settings: WaterSettings, drankMl: Int, nowMs: Long, is24: Boolean, canUndo: Boolean,
+    settings: WaterSettings, today: WaterStore.Today, nowMs: Long, is24: Boolean,
     onAdd: (Int) -> Unit, onUndo: () -> Unit,
+    onOpenBottle: () -> Unit = {}, onFinishBottle: () -> Unit = {}, onPutBottleAway: (Float) -> Unit = {},
 ) {
-    val st = WaterPlan.status(nowMs, drankMl, settings)
+    val st = WaterPlan.status(nowMs, today.totalMl, settings)
+    var askingLeft by remember { mutableStateOf(false) }
     Card {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SectionTitle("Water today", Modifier.weight(1f))
                 Text(
-                    "${WaterPlan.liters(drankMl)} of ${WaterPlan.liters(settings.targetMl)}",
+                    "${if (today.isEstimate) "About " else ""}${WaterPlan.liters(today.totalMl)} of ${WaterPlan.liters(settings.targetMl)}",
                     style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
                 )
             }
@@ -94,17 +101,52 @@ fun WaterTodayCard(
             Text(WaterPlan.message(st) { ReminderTime.label(minuteOf(it), is24) }, color = Palette.Muted, style = MaterialTheme.typography.bodySmall)
             if (st.nextReminderMs > 0 && st.nextAmountMl > 0) {
                 Text(
-                    "Next reminder ${ReminderTime.label(minuteOf(st.nextReminderMs), is24)}: about ${st.nextAmountMl} ml.",
+                    "Next reminder ${ReminderTime.label(minuteOf(st.nextReminderMs), is24)}: about ${st.nextAmountMl} ml" +
+                        if (today.bottleOpen) " from your bottle." else ".",
+                    color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (today.bottleOpen) {
+                Spacer(Modifier.height(10.dp))
+                Text("${WaterPlan.liters(today.bottleMl)} bottle on the go", fontWeight = FontWeight.Medium)
+                Text(
+                    "Reminders ask for a few sips and count them as an estimate (about ${WaterPlan.liters(today.bottleSoFarMl)} so far). " +
+                        "Mark it when it's empty and the whole bottle is counted instead.",
                     color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
                 )
             }
             Spacer(Modifier.height(8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                OutlinedButton({ onAdd(settings.glassMl) }) { Text("+ Glass (${settings.glassMl} ml)") }
-                OutlinedButton({ onAdd(maxOf(100, settings.glassMl / 2)) }) { Text("+ ${maxOf(100, settings.glassMl / 2)} ml") }
-                if (canUndo) TextButton(onUndo) { Text("Undo") }
+                if (today.bottleOpen) {
+                    OutlinedButton(onFinishBottle) { Text("Finished the bottle") }
+                    TextButton({ askingLeft = true }) { Text("Put it away") }
+                } else {
+                    OutlinedButton({ onAdd(settings.glassMl) }) { Text("+ Glass (${settings.glassMl} ml)") }
+                    OutlinedButton({ onAdd(maxOf(100, settings.glassMl / 2)) }) { Text("+ ${maxOf(100, settings.glassMl / 2)} ml") }
+                    OutlinedButton(onOpenBottle) { Text("Started a ${WaterPlan.liters(settings.bottleSizeMl)} bottle") }
+                    if (today.drinks.isNotEmpty()) TextButton(onUndo) { Text("Undo") }
+                }
             }
         }
+    }
+    if (askingLeft) {
+        AlertDialog(
+            onDismissRequest = { askingLeft = false },
+            title = { Text("How much is left?") },
+            text = {
+                Column {
+                    Text("Roughly is fine. What you drank is counted and the estimate is dropped.", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    listOf("Most of it" to 0.25f, "About half" to 0.5f, "A little" to 0.75f).forEach { (label, drunk) ->
+                        TextButton({ askingLeft = false; onPutBottleAway(drunk) }) {
+                            Text("$label (counts ${WaterPlan.liters((today.bottleMl * drunk).toInt())})")
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton({ askingLeft = false }) { Text("Cancel") } },
+        )
     }
 }
 
@@ -169,6 +211,17 @@ fun WaterSettingsCard(s: WaterSettings, is24: Boolean, onChange: ((WaterSettings
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(150, 200, 250, 330, 500).forEach { ml ->
                     FilterChip(s.glassMl == ml, { onChange { it.copy(glassMl = ml) } }, label = { Text("$ml ml") })
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Text("Your bottle", fontWeight = FontWeight.Medium)
+            Text(
+                "For a bottle you sip from over several hours: start it on the Water today card and mark it when it's empty.",
+                color = Palette.Muted, style = MaterialTheme.typography.bodySmall,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(500, 750, 1000, 1500, 2000).forEach { ml ->
+                    FilterChip(s.bottleSizeMl == ml, { onChange { it.copy(bottleSizeMl = ml) } }, label = { Text(WaterPlan.liters(ml)) })
                 }
             }
             Spacer(Modifier.height(10.dp))
