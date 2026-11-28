@@ -69,6 +69,8 @@ fun SettingsScreen(
     hasRealNights: Boolean = hasSessions,
     /** The 30-night report has a real night to show. */
     canReport: Boolean = hasRealNights,
+    /** The water-reminder settings card. */
+    water: (@Composable () -> Unit)? = null,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
@@ -137,6 +139,11 @@ fun SettingsScreen(
         if (onReminder != null) {
             Spacer(Modifier.height(12.dp))
             ReminderCard(prefs.reminderOn, prefs.reminderMinute, onReminder)
+        }
+
+        if (water != null) {
+            Spacer(Modifier.height(12.dp))
+            water()
         }
 
         if (weight != null && onWeight != null) {

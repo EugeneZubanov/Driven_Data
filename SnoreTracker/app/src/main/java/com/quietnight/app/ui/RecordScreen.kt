@@ -127,9 +127,11 @@ fun RecordScreen(
     is24Hour: Boolean? = null,
     /** False when the app may not post notifications: the wake-up alarm could not ring. */
     notificationsAllowed: Boolean = true,
+    /** Extra cards shown at the bottom of the idle view (the water card). */
+    extra: (@Composable () -> Unit)? = null,
 ) {
     val h24 = is24Hour ?: DateFormat.is24HourFormat(LocalContext.current)
-    CompositionLocalProvider(LocalIs24Hour provides h24, LocalNotificationsAllowed provides notificationsAllowed) { RecordScreenBody(
+    CompositionLocalProvider(LocalIs24Hour provides h24, LocalNotificationsAllowed provides notificationsAllowed, LocalExtra provides extra) { RecordScreenBody(
         prefs, rec, lastSession, onStart, onStop, onPrefs, onOpenSession, nowMs, batteryExempt, onFixBattery, startWarnings,
         onDismissNotice, mic, onMicCheck, onDimmed, onKeepScreenOn, dimAfterMs, wake, onWake, onTestRun, manufacturer,
         fullAudio && fullAudioSupported, onFullAudio, fullAudioSupported,
@@ -137,6 +139,8 @@ fun RecordScreen(
 }
 
 private val LocalNotificationsAllowed = staticCompositionLocalOf { true }
+
+private val LocalExtra = staticCompositionLocalOf<(@Composable () -> Unit)?> { null }
 
 /** 12/24-hour setting for the times shown on the Record tab. */
 private val LocalIs24Hour = staticCompositionLocalOf { true }
@@ -252,6 +256,7 @@ private fun IdleView(
                 }
             }
         }
+        LocalExtra.current?.invoke()
         Spacer(Modifier.height(24.dp))
     }
 

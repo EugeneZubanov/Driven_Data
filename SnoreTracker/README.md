@@ -72,6 +72,28 @@ partial wake lock, and is saved every 2 minutes.
   (an estimate, not measured).
 What the app cannot do: see the end of [TESTING.md](TESTING.md).
 
+## Water reminders
+
+Optional, in Settings. You set a daily target for drinks (the common guide is about 1.6 L for women
+and 2.0 L for men from drinks, with food adding roughly a fifth on top; more in heat or when
+active), your glass size, when you get up and go to bed, and how long before bed to stop.
+
+- Drinks are spread evenly from wake-up to the cut-off before bed. Reminders come hourly with the
+  amount for that hour; log a drink from the notification ("Drank 250 ml") or the *Water today*
+  card on the Record tab.
+- **If you fall behind** (for example nothing in the morning), the rest is spread over the hours
+  left instead of all at once, with reminders every 30 minutes and smaller drinks when the pace is
+  high.
+- **The pace is capped at 0.5 L an hour**, half the roughly 0.8–1 L an hour that healthy kidneys can
+  clear; drinking faster than the kidneys can clear risks low blood sodium (hyponatremia). If the
+  target cannot be reached under that cap, the app says so, aims for what can be reached, and
+  suggests starting earlier tomorrow. Missing the target on one day is fine.
+- **No reminders in the last 1–3 hours before bed** (2 h by default), the usual advice for fewer
+  night-time toilet trips, and none while a night is being recorded.
+- General guidance, not medical advice: anyone told by a doctor to limit fluids should follow that.
+
+The plan is in `data/Water.kt` (`WaterPlan`, tested in `WaterPlanTest`); reminders in `WaterReminder.kt`.
+
 ## How detection works
 
 `SnoreDetector` works on 50 ms frames at whatever rate the microphone gives (16, 44.1 or 48 kHz):

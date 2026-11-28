@@ -65,6 +65,10 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
+        <!-- Water reminders: fired by our own alarm, and the "Drank" action on the notification. -->
+        <receiver
+            android:name=".WaterReceiver"
+            android:exported="false" />
         <receiver
             android:name=".audio.AlarmOffReceiver"
             android:exported="false" />

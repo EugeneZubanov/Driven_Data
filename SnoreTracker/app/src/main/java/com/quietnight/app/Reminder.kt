@@ -95,7 +95,10 @@ class ReminderReceiver : BroadcastReceiver() {
                 Reminder.sync(context)
             }
             Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED,
-            Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED -> Reminder.sync(context)
+            Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED -> {
+                Reminder.sync(context)
+                WaterReminder.sync(context)
+            }
         }
     }
 }

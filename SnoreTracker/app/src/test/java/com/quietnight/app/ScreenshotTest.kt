@@ -479,6 +479,22 @@ class ScreenshotTest {
 
     @Test fun settings() = shot("settings") { SettingsScreen(Prefs(), false, true, {}, {}, {}, {}) }
 
+    /** Water card on the Record tab: nothing drunk by mid-afternoon, so the rest is spread over the evening. */
+    @Test fun waterToday() = shot("water-today") {
+        val day = java.util.Calendar.getInstance().apply { set(2026, 10, 28, 16, 0, 0) }.timeInMillis
+        androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) {
+            com.quietnight.app.ui.WaterTodayCard(com.quietnight.app.data.WaterSettings(on = true), 250, day, true, true, {}, {})
+            androidx.compose.foundation.layout.Spacer(Modifier.padding(6.dp))
+            com.quietnight.app.ui.WaterTodayCard(com.quietnight.app.data.WaterSettings(on = true), 0, day + 2 * 3_600_000L, true, false, {}, {})
+        }
+    }
+
+    @Test fun waterSettings() = shot("water-settings") {
+        androidx.compose.foundation.layout.Column(Modifier.padding(20.dp)) {
+            com.quietnight.app.ui.WaterSettingsCard(com.quietnight.app.data.WaterSettings(on = true), true) {}
+        }
+    }
+
     @Test fun settingsData() {
         shot("settings-data") { SettingsScreen(Prefs(), false, true, {}, {}, {}, {}, {}, {}, {}, "Added 12 nights. 3 already here.") }
         compose.onNodeWithText("Your data").performScrollTo()

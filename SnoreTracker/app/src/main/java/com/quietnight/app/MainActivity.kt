@@ -241,6 +241,7 @@ private fun AppRoot(app: QuietNightApp) {
                     dataBusy = data.busy,
                     onShowIntro = { showIntro = true },
                     onReminder = rememberReminderToggle(app),
+                    water = { com.quietnight.app.ui.WaterSettings(app) },
                     weight = weight,
                     onWeight = weightStore::update,
                     onSaveReport = data.onSaveReport,

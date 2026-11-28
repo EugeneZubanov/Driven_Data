@@ -121,6 +121,7 @@ fun RecordTab(
                 else w.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
         },
+        extra = { WaterToday(context.applicationContext as com.quietnight.app.QuietNightApp) },
         onDimmed = { dim ->
             RecordingService.uiDimmed = dim
             context.findActivity()?.window?.let { w -> w.attributes = w.attributes.also { it.screenBrightness = if (dim) 0.01f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } } },
